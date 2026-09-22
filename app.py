@@ -4087,6 +4087,13 @@ def build_sql_from_imported_state(conn, fields, imported_state, table_aliases=No
             )
             source_table_ids.append(int(table_id))
 
+    seen_imported_aliases = {}
+    for table_id, alias in aliases.items():
+        folded = str(alias).casefold()
+        if folded in seen_imported_aliases and seen_imported_aliases[folded] != table_id:
+            raise ValueError(f"Table alias '{alias}' is used more than once.")
+        seen_imported_aliases[folded] = table_id
+
     selected_table_ids = []
     for field in fields:
         if field.get("kind") == "expression":
@@ -4106,8 +4113,12 @@ def build_sql_from_imported_state(conn, fields, imported_state, table_aliases=No
         requested = table_aliases.get(str(table_id))
         if requested:
             alias = requested
+            if alias.casefold() in {str(value).casefold() for value in used_aliases}:
+                raise ValueError(f"Table alias '{alias}' is used more than once.")
         else:
-            while f"qb{next_alias}" in used_aliases:
+            while f"qb{next_alias}".casefold() in {
+                str(value).casefold() for value in used_aliases
+            }:
                 next_alias += 1
             alias = f"qb{next_alias}"
             next_alias += 1
@@ -4146,7 +4157,7 @@ def build_sql_from_imported_state(conn, fields, imported_state, table_aliases=No
             else quote_ident(row["column_name"])
         )
 
-        output_alias = (field.get("output_alias") or "").strip()
+        output_alias = normalise_sql_alias(field.get("output_alias"))
         if output_alias:
             expression_sql += f" AS {quote_ident(output_alias)}"
         selected_parts.append(expression_sql)
