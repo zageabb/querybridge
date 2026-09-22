@@ -71,6 +71,17 @@ const input = document.getElementById("chat-input");
 const messages = document.getElementById("chat-messages");
 const sendButton = document.getElementById("send-button");
 
+function wrapMarkdownTables(root) {
+    if (!root) return;
+    root.querySelectorAll("table").forEach(function (table) {
+        if (table.parentElement && table.parentElement.classList.contains("markdown-table-scroll")) return;
+        const wrapper = document.createElement("div");
+        wrapper.className = "markdown-table-scroll";
+        table.parentNode.insertBefore(wrapper, table);
+        wrapper.appendChild(table);
+    });
+}
+
 function appendMessage(role, text, html) {
     const welcome = messages.querySelector(".chat-welcome");
     if (welcome) welcome.remove();
@@ -87,6 +98,7 @@ function appendMessage(role, text, html) {
     if (role === "assistant" && html) {
         textBox.innerHTML = html;
         textBox.classList.add("markdown-document");
+        wrapMarkdownTables(textBox);
     } else {
         textBox.textContent = text;
     }
@@ -122,6 +134,7 @@ form.addEventListener("submit", async function (event) {
         const box = pending.querySelector(".chat-text");
         box.innerHTML = data.html || "";
         box.classList.add("markdown-document");
+        wrapMarkdownTables(box);
     } catch (error) {
         pending.querySelector(".chat-text").textContent = "Error: " + error.message;
         pending.classList.add("error-message");
@@ -141,6 +154,7 @@ input.addEventListener("keydown", function (event) {
     }
 });
 
+document.querySelectorAll(".chat-text.markdown-document").forEach(wrapMarkdownTables);
 messages.scrollTop = messages.scrollHeight;
 </script>
 </body>
