@@ -685,3 +685,43 @@ body.resizing-panes {
     border-color: #c7b9da;
     background: #f9f5ff;
 }
+
+
+/* Relationship provenance and cleanup controls */
+.relationship-control-panel {
+    margin-top: 30px;
+    border-color: #d0d5dd;
+}
+.relationship-source-summary {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 16px 0;
+}
+.relationship-source-summary > div {
+    min-width: 95px;
+    padding: 11px 13px;
+    border: 1px solid #e4e7ec;
+    border-radius: 10px;
+    background: #f9fafb;
+}
+.relationship-source-summary strong {
+    display: block;
+    font-size: 20px;
+    color: #182230;
+}
+.relationship-source-summary span {
+    display: block;
+    margin-top: 2px;
+    color: #667085;
+    font-size: 12px;
+}
+.relationship-control-actions {
+    display: flex;
+    gap: 9px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.relationship-control-actions form {
+    margin: 0;
+}
