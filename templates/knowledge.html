@@ -40,6 +40,32 @@
         </div>
     </section>
 
+
+    {% if pack_info %}
+    <section class="panel knowledge-pack-panel">
+        <div class="panel-head">
+            <div>
+                <h2>Built-in Knowledge Pack</h2>
+                <p><strong>{{ pack_info.name }}</strong> contains {{ pack_info.entry_count }} curated knowledge documents from the repository.</p>
+                <p class="hint">{{ pack_info.imported_count }} of {{ pack_info.entry_count }} entries are currently loaded into the QueryBridge Knowledge database.</p>
+            </div>
+            <form method="post" action="{{ url_for('import_knowledge_pack') }}">
+                <button class="primary" type="submit">
+                    {% if pack_info.imported_count == 0 %}
+                        Import Knowledge Pack
+                    {% elif pack_info.imported_count < pack_info.entry_count %}
+                        Complete Import
+                    {% else %}
+                        Refresh Knowledge Pack
+                    {% endif %}
+                </button>
+            </form>
+        </div>
+        <p class="hint">Re-importing is safe: existing pack entries are updated by title rather than duplicated. User-created knowledge with different titles is left untouched.</p>
+    </section>
+    {% endif %}
+
+
     <div class="knowledge-grid">
         <section class="panel">
             <h2>Add knowledge</h2>
