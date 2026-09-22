@@ -1191,10 +1191,12 @@ def index():
             table_count = len(snapshot_tables)
             field_count = sum(len(t.get("columns", [])) for t in snapshot_tables)
             relationship_count = len(snapshot_payload.get("relationships", []))
+            knowledge_count = len(snapshot_payload.get("knowledge", []))
         except Exception:
             table_count = 0
             field_count = 0
             relationship_count = 0
+            knowledge_count = 0
 
         snapshots.append(
             {
@@ -1206,6 +1208,7 @@ def index():
                 "table_count": table_count,
                 "field_count": field_count,
                 "relationship_count": relationship_count,
+                "knowledge_count": knowledge_count,
             }
         )
 
