@@ -101,6 +101,31 @@ jobs:
           assert imported["state"]["modifiers"]["where"].upper().startswith("WHERE")
           assert imported["state"]["modifiers"]["order"].upper().startswith("ORDER BY")
           assert len(imported["relationship_candidates"]) == 1
+          assert len(imported["state"]["joins"]) == 1
+          assert len(imported["state"]["criteria"]) == 1
+
+          complex_shape = app.parse_databricks_query_to_builder(
+              conn,
+              """SELECT
+                     t1.ID AS Project_ID,
+                     t1.Number AS Project_Number,
+                     t1.Created AS Project_Created,
+                     t1.Name AS Project_Name,
+                     t2.Name AS LUI_Name
+                 FROM edp_scm.scmcockpit.pp_projects AS t1
+                 INNER JOIN edp_scm.scmcockpit.pp_localuserislands AS t2
+                   ON t2.ID = t1.LocalUserIslandID
+                 INNER JOIN edp_scm.scmcockpit.pp_requestforrequestforquotations AS qb1
+                   ON qb1.ProjectID = t1.ID
+                 INNER JOIN edp_scm.scmcockpit.pp_requestforrequestforquotationstatuses AS qb2
+                   ON qb2.Process_Id = t2.Process_Id
+                 WHERE t1.IsInactive = FALSE
+                   AND t1.IsDeleted = FALSE
+                   AND qb1.Created > '2021-09-01'"""
+          )
+          assert len(complex_shape["state"]["sources"]) == 4
+          assert len(complex_shape["state"]["joins"]) == 3
+          assert len(complex_shape["state"]["criteria"]) == 3
 
           setting = conn.execute(
               "SELECT auto_inference_enabled FROM qb_relationship_settings WHERE id=1"
@@ -124,6 +149,22 @@ jobs:
           assert "WHERE" in rebuilt.upper()
           assert "ORDER BY" in rebuilt.upper()
           assert "PROJECT_NAME" in rebuilt.upper()
+
+          manual_fields = [dict(item) for item in imported["fields"]]
+          manual_fields[0]["output_alias"] = "Project_Name"
+          manual_alias_sql, manual_warnings = app.build_sql_from_imported_state(
+              conn,
+              manual_fields,
+              imported["state"],
+              {
+                  str(project_id): "project",
+                  str(order_id): "po",
+              },
+          )
+          assert "PROJECT_NAME" in manual_alias_sql.upper()
+          assert "AS `Project_Name`".upper() in manual_alias_sql.upper()
+          assert "PROJECT.PROJECT_ID" in manual_alias_sql.replace("`", "").upper()
+          assert "PO.PROJECT_ID" in manual_alias_sql.replace("`", "").upper()
 
           # Explicitly generate one heuristic link, then prove provenance cleanup
           # can remove it without touching an approved AI link.
