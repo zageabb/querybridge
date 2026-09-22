@@ -153,3 +153,31 @@ The importer is idempotent by title:
 - user-created entries with different titles are retained
 
 After a future `git pull`, use **Refresh Knowledge Pack** to bring any updated repository knowledge into the local database.
+
+
+## Markdown knowledge documents
+
+QueryBridge knowledge is Markdown-native. Knowledge documents support headings, lists, fenced code and Markdown tables. Open any knowledge item to view the rendered document or edit the raw Markdown with a live preview.
+
+The renderer escapes raw HTML before rendering Markdown, keeping the local document viewer safe while preserving Markdown structures.
+
+## AI Skills and reviewable schema changes
+
+QueryBridge includes built-in local AI skills inspired by the bounded skill/action patterns in Context Studio and the review-first schema workflow in System Knowledge Designer.
+
+Built-in skills cover:
+
+- relationship analysis
+- schema curation
+- field type review
+- knowledge-grounded schema reasoning
+
+AI can propose local metadata-model operations including:
+
+- add/remove/rename tables
+- add/remove/rename fields
+- change field data types
+- change nullability
+- add/remove relationships
+
+AI proposals never alter Databricks and never apply automatically. They are stored in the **AI Skills** review queue and must be explicitly **Applied** or **Rejected**. QueryBridge validates the proposal when generated and again immediately before application.
