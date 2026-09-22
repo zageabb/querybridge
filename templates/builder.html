@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QueryBridge - Query Builder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+    <div>
+        <div class="brand">QueryBridge</div>
+        <div class="subtitle">Visual SQL Query Builder</div>
+    </div>
+    <nav>
+        <a href="{{ url_for('index') }}">Metadata</a>
+        <a class="active" href="{{ url_for('builder') }}">Query Builder</a>
+    </nav>
+</header>
+
+<main class="builder-page">
+    {% if not tables %}
+      <div class="empty">
+        <h1>No table fields stored yet</h1>
+        <p>Capture at least one table definition first.</p>
+        <a class="primary button-link" href="{{ url_for('index') }}">Go to Metadata</a>
+      </div>
+    {% else %}
+    <div class="builder-grid">
+        <aside class="schema-browser">
+            <div class="sticky-title">
+                <h2>Tables & fields</h2>
+                <p>Drag fields into the query.</p>
+            </div>
+            {% for table in tables %}
+            <details class="schema-table" open>
+                <summary>{{ table.schema_name or '' }}{% if table.schema_name %}.{% endif %}{{ table.table_name }}</summary>
+                {% for col in table.columns %}
+                <div class="field"
+                     draggable="true"
+                     data-table-id="{{ table.id }}"
+                     data-column="{{ col.column_name }}">
+                    <span>{{ col.column_name }}</span>
+                    <small>{{ col.data_type or '' }}</small>
+                </div>
+                {% endfor %}
+            </details>
+            {% endfor %}
+        </aside>
+
+        <section class="canvas">
+            <div class="canvas-head">
+                <div>
+                    <h1>Query canvas</h1>
+                    <p>Adding fields from another table automatically adds a detected JOIN when possible.</p>
+                </div>
+                <button id="clear-fields" class="secondary">Clear</button>
+            </div>
+
+            <div id="drop-zone" class="drop-zone">
+                <div id="empty-drop">Drop fields here</div>
+                <div id="selected-fields"></div>
+            </div>
+
+            <div class="join-info">
+                <h3>Automatic links</h3>
+                <div id="join-status" class="muted">Add fields from more than one table to see joins.</div>
+            </div>
+        </section>
+
+        <aside class="sql-preview">
+            <div class="panel-head">
+                <div>
+                    <h2>Generated SQL</h2>
+                    <p>Ready to paste back into Databricks.</p>
+                </div>
+                <button id="copy-sql" class="copy">Copy</button>
+            </div>
+            <pre id="generated-sql">-- Drag fields here to build a query.</pre>
+        </aside>
+    </div>
+    {% endif %}
+</main>
+
+<script>
+const selected = [];
+const dropZone = document.getElementById("drop-zone");
+const selectedFields = document.getElementById("selected-fields");
+const emptyDrop = document.getElementById("empty-drop");
+const sqlBox = document.getElementById("generated-sql");
+const joinStatus = document.getElementById("join-status");
+
+document.querySelectorAll(".field").forEach(function (field) {
+    field.addEventListener("dragstart", function (event) {
+        event.dataTransfer.setData("application/json", JSON.stringify({
+            table_id: Number(field.dataset.tableId),
+            column_name: field.dataset.column
+        }));
+    });
+
+    field.addEventListener("dblclick", function () {
+        addField({
+            table_id: Number(field.dataset.tableId),
+            column_name: field.dataset.column
+        });
+    });
+});
+
+if (dropZone) {
+    dropZone.addEventListener("dragover", function (event) {
+        event.preventDefault();
+        dropZone.classList.add("over");
+    });
+
+    dropZone.addEventListener("dragleave", function () {
+        dropZone.classList.remove("over");
+    });
+
+    dropZone.addEventListener("drop", function (event) {
+        event.preventDefault();
+        dropZone.classList.remove("over");
+        try {
+            addField(JSON.parse(event.dataTransfer.getData("application/json")));
+        } catch (_) {}
+    });
+}
+
+function addField(item) {
+    const exists = selected.some(function (x) {
+        return x.table_id === item.table_id && x.column_name === item.column_name;
+    });
+    if (!exists) {
+        selected.push(item);
+        renderFields();
+        refreshSql();
+    }
+}
+
+function removeField(index) {
+    selected.splice(index, 1);
+    renderFields();
+    refreshSql();
+}
+
+function renderFields() {
+    if (!selectedFields) return;
+    selectedFields.innerHTML = "";
+    emptyDrop.style.display = selected.length ? "none" : "block";
+
+    selected.forEach(function (item, index) {
+        const pill = document.createElement("button");
+        pill.type = "button";
+        pill.className = "selected-field";
+        pill.innerHTML = "<span>" + escapeHtml(item.column_name) + "</span><b>×</b>";
+        pill.addEventListener("click", function () { removeField(index); });
+        selectedFields.appendChild(pill);
+    });
+}
+
+async function refreshSql() {
+    const response = await fetch("/api/build-sql", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({fields: selected})
+    });
+    const data = await response.json();
+    sqlBox.textContent = data.sql;
+
+    if (!data.joins || !data.joins.length) {
+        joinStatus.textContent = "Add fields from more than one table to see joins.";
+        joinStatus.className = "muted";
+        return;
+    }
+
+    const warnings = data.joins.filter(function (j) { return j.warning; });
+    if (warnings.length) {
+        joinStatus.textContent = warnings.map(function (j) { return j.warning; }).join(" ");
+        joinStatus.className = "warning-text";
+    } else {
+        joinStatus.textContent = data.joins.length + " inferred link(s) added to the SQL.";
+        joinStatus.className = "success-text";
+    }
+}
+
+const clearButton = document.getElementById("clear-fields");
+if (clearButton) {
+    clearButton.addEventListener("click", function () {
+        selected.splice(0, selected.length);
+        renderFields();
+        refreshSql();
+    });
+}
+
+const copyButton = document.getElementById("copy-sql");
+if (copyButton) {
+    copyButton.addEventListener("click", function () {
+        navigator.clipboard.writeText(sqlBox.innerText).then(function () {
+            const old = copyButton.innerText;
+            copyButton.innerText = "Copied";
+            setTimeout(function () { copyButton.innerText = old; }, 1200);
+        });
+    });
+}
+
+function escapeHtml(value) {
+    return value.replace(/[&<>"']/g, function (c) {
+        return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c];
+    });
+}
+</script>
+</body>
+</html>
