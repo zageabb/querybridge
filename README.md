@@ -138,3 +138,18 @@ Named schema snapshots now carry:
 - schema/package knowledge
 
 Loading a different schema snapshot clears the previous schema-chat history so conversations do not mix context from different schemas.
+
+
+### Built-in knowledge pack
+
+The repository includes a curated TAIJU / SCM knowledge pack under `knowledge/`.
+
+Open **Knowledge** and use **Import Knowledge Pack** to load the manifest-driven Markdown documents into the local QueryBridge Knowledge database.
+
+The importer is idempotent by title:
+
+- missing entries are added
+- existing pack entries are refreshed
+- user-created entries with different titles are retained
+
+After a future `git pull`, use **Refresh Knowledge Pack** to bring any updated repository knowledge into the local database.
