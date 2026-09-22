@@ -895,12 +895,40 @@ def normalise_ai_operation(raw):
 
     op = dict(raw)
 
+    # Some models return {"add_relationship": {...}} instead of an action field.
+    supported_or_alias_keys = {
+        "add_table", "create_table", "new_table",
+        "remove_table", "delete_table", "drop_table",
+        "rename_table", "update_table_name", "change_table_name",
+        "add_field", "add_column", "create_field", "create_column", "new_field", "new_column",
+        "remove_field", "remove_column", "delete_field", "delete_column", "drop_field", "drop_column",
+        "rename_field", "rename_column", "update_field_name", "change_column_name",
+        "change_field_type", "change_type", "change_column_type", "modify_type", "update_type", "set_data_type", "update_data_type",
+        "set_field_nullable", "set_nullable", "change_nullable", "update_nullability", "set_nullability",
+        "add_relationship", "add_link", "create_link", "link_tables", "link_fields", "add_join", "create_relationship", "link",
+        "remove_relationship", "delete_link", "remove_link", "unlink_tables", "remove_join", "delete_relationship",
+    }
+    if not any(
+        op.get(key) not in {None, ""}
+        for key in ("action", "operation", "type", "op", "change", "action_type", "kind", "command")
+    ):
+        if len(op) == 1:
+            only_key, only_value = next(iter(op.items()))
+            normalised_key = re.sub(
+                r"[^a-z0-9]+", "_", str(only_key).strip().casefold()
+            ).strip("_")
+            if normalised_key in supported_or_alias_keys and isinstance(only_value, dict):
+                op = {**only_value, "action": normalised_key}
+
     action_value = (
         op.get("action")
         or op.get("operation")
         or op.get("type")
         or op.get("op")
         or op.get("change")
+        or op.get("action_type")
+        or op.get("kind")
+        or op.get("command")
         or ""
     )
     action = re.sub(r"[^a-z0-9]+", "_", str(action_value).strip().casefold()).strip("_")
@@ -954,7 +982,7 @@ def normalise_ai_operation(raw):
     def first(*names):
         for name in names:
             value = op.get(name)
-            if value not in {None, ""}:
+            if value is not None and value != "":
                 return value
         return None
 
@@ -1078,12 +1106,11 @@ def normalise_ai_operations(payload):
     if not isinstance(payload, dict):
         raise ValueError("The AI response was not a JSON object or operations list.")
 
-    operations = (
-        payload.get("operations")
-        or payload.get("changes")
-        or payload.get("proposals")
-        or payload.get("actions")
-    )
+    operations = None
+    for key in ("operations", "changes", "proposals", "actions"):
+        if key in payload:
+            operations = payload.get(key)
+            break
     if not isinstance(operations, list):
         raise ValueError("The AI response did not contain an operations list.")
 
