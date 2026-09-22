@@ -5,6 +5,7 @@ import io
 import json
 import re
 import sqlite3
+import time
 import requests
 import markdown as markdown_lib
 from markupsafe import Markup, escape
@@ -188,6 +189,12 @@ def init_db():
             "Knowledge-grounded schema reasoning",
             "Use Markdown knowledge, package notes and source-authority rules to improve schema understanding.",
             "Ground every proposal in the supplied schema or knowledge. If evidence is insufficient, return no operation rather than guessing. Relationship hints in knowledge may justify add_relationship proposals.",
+        ),
+        (
+            "local-schema-sql-analysis",
+            "Local Schema SQL Analysis",
+            "Run read-only SELECT statements against QueryBridge's local captured schema metadata to analyse tables, fields, relationships and knowledge.",
+            "Use the local_schema_select tool whenever a SQL query over the locally stored schema would give a more precise answer. Query only schema_tables, schema_fields, schema_relationships and schema_knowledge. You may JOIN, GROUP BY, aggregate, filter and use CTEs. This tool never connects to Databricks and never queries live business data.",
         ),
     ]
     for skill_key, name, description, instructions in builtin_skills:
@@ -1232,6 +1239,403 @@ Rules:
         ),
     )
     return cursor.lastrowid, len(valid_operations), len(invalid)
+
+
+
+LOCAL_ANALYSIS_TABLES = {
+    "schema_tables",
+    "schema_fields",
+    "schema_relationships",
+    "schema_knowledge",
+}
+
+
+def build_local_schema_analysis_db(conn):
+    """Build an isolated in-memory database containing only schema/knowledge analysis data."""
+    analysis = sqlite3.connect(":memory:")
+    analysis.row_factory = sqlite3.Row
+    analysis.executescript(
+        """
+        CREATE TABLE schema_tables (
+            table_id INTEGER,
+            catalog TEXT,
+            schema_name TEXT,
+            table_name TEXT,
+            table_type TEXT,
+            is_temporary INTEGER,
+            captured_at TEXT
+        );
+
+        CREATE TABLE schema_fields (
+            field_id INTEGER,
+            table_id INTEGER,
+            catalog TEXT,
+            schema_name TEXT,
+            table_name TEXT,
+            ordinal_position INTEGER,
+            column_name TEXT,
+            data_type TEXT,
+            nullable INTEGER,
+            comment TEXT
+        );
+
+        CREATE TABLE schema_relationships (
+            relationship_id INTEGER,
+            left_catalog TEXT,
+            left_schema TEXT,
+            left_table TEXT,
+            left_column TEXT,
+            right_catalog TEXT,
+            right_schema TEXT,
+            right_table TEXT,
+            right_column TEXT,
+            confidence REAL,
+            source TEXT,
+            notes TEXT
+        );
+
+        CREATE TABLE schema_knowledge (
+            knowledge_id INTEGER,
+            title TEXT,
+            category TEXT,
+            content TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        );
+
+        CREATE INDEX idx_schema_tables_name ON schema_tables(table_name);
+        CREATE INDEX idx_schema_fields_table ON schema_fields(table_name, column_name);
+        CREATE INDEX idx_schema_relationships_left ON schema_relationships(left_table, left_column);
+        CREATE INDEX idx_schema_relationships_right ON schema_relationships(right_table, right_column);
+        CREATE INDEX idx_schema_knowledge_category ON schema_knowledge(category);
+        """
+    )
+
+    analysis.executemany(
+        """
+        INSERT INTO schema_tables
+        (table_id, catalog, schema_name, table_name, table_type, is_temporary, captured_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                row["id"],
+                row["catalog"],
+                row["schema_name"],
+                row["table_name"],
+                row["table_type"],
+                row["is_temporary"],
+                row["captured_at"],
+            )
+            for row in conn.execute(
+                """
+                SELECT id, catalog, schema_name, table_name, table_type, is_temporary, captured_at
+                FROM qb_tables
+                ORDER BY COALESCE(catalog,''), COALESCE(schema_name,''), table_name
+                """
+            ).fetchall()
+        ],
+    )
+
+    analysis.executemany(
+        """
+        INSERT INTO schema_fields
+        (field_id, table_id, catalog, schema_name, table_name,
+         ordinal_position, column_name, data_type, nullable, comment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                row["field_id"],
+                row["table_id"],
+                row["catalog"],
+                row["schema_name"],
+                row["table_name"],
+                row["ordinal_position"],
+                row["column_name"],
+                row["data_type"],
+                row["nullable"],
+                row["comment"],
+            )
+            for row in conn.execute(
+                """
+                SELECT
+                    c.id field_id,
+                    t.id table_id,
+                    t.catalog,
+                    t.schema_name,
+                    t.table_name,
+                    c.ordinal_position,
+                    c.column_name,
+                    c.data_type,
+                    c.nullable,
+                    c.comment
+                FROM qb_columns c
+                JOIN qb_tables t ON t.id = c.table_id
+                ORDER BY t.table_name, c.ordinal_position
+                """
+            ).fetchall()
+        ],
+    )
+
+    analysis.executemany(
+        """
+        INSERT INTO schema_relationships
+        (relationship_id, left_catalog, left_schema, left_table, left_column,
+         right_catalog, right_schema, right_table, right_column,
+         confidence, source, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                row["relationship_id"],
+                row["left_catalog"],
+                row["left_schema"],
+                row["left_table"],
+                row["left_column"],
+                row["right_catalog"],
+                row["right_schema"],
+                row["right_table"],
+                row["right_column"],
+                row["confidence"],
+                row["source"],
+                row["notes"],
+            )
+            for row in conn.execute(
+                """
+                SELECT
+                    r.id relationship_id,
+                    lt.catalog left_catalog,
+                    lt.schema_name left_schema,
+                    lt.table_name left_table,
+                    lc.column_name left_column,
+                    rt.catalog right_catalog,
+                    rt.schema_name right_schema,
+                    rt.table_name right_table,
+                    rc.column_name right_column,
+                    r.confidence,
+                    r.source,
+                    r.notes
+                FROM qb_relationships r
+                JOIN qb_tables lt ON lt.id = r.left_table_id
+                JOIN qb_columns lc ON lc.id = r.left_column_id
+                JOIN qb_tables rt ON rt.id = r.right_table_id
+                JOIN qb_columns rc ON rc.id = r.right_column_id
+                ORDER BY r.confidence DESC, r.id
+                """
+            ).fetchall()
+        ],
+    )
+
+    analysis.executemany(
+        """
+        INSERT INTO schema_knowledge
+        (knowledge_id, title, category, content, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                row["id"],
+                row["title"],
+                row["category"],
+                row["content"],
+                row["created_at"],
+                row["updated_at"],
+            )
+            for row in conn.execute(
+                """
+                SELECT id, title, category, content, created_at, updated_at
+                FROM qb_knowledge
+                ORDER BY category, title
+                """
+            ).fetchall()
+        ],
+    )
+
+    analysis.commit()
+    analysis.execute("PRAGMA query_only = ON")
+    return analysis
+
+
+def validate_local_schema_select(sql):
+    sql = (sql or "").strip()
+    if not sql:
+        raise ValueError("Local schema SELECT is empty.")
+
+    # sqlite3.execute already rejects multiple statements; strip one harmless trailing semicolon.
+    if sql.endswith(";"):
+        sql = sql[:-1].rstrip()
+
+    if not re.match(r"(?is)^(select|with)\b", sql):
+        raise ValueError("Local schema analysis only permits SELECT statements or SELECT CTEs.")
+
+    forbidden = re.compile(
+        r"(?is)\b(insert|update|delete|replace|drop|alter|create|attach|detach|pragma|vacuum|reindex|"
+        r"begin|commit|rollback|savepoint|release|load_extension)\b"
+    )
+    if forbidden.search(sql):
+        raise ValueError("Only read-only SELECT analysis is permitted.")
+
+    return sql
+
+
+def execute_local_schema_select(conn, sql, row_limit=250, timeout_seconds=2.0):
+    sql = validate_local_schema_select(sql)
+    analysis = build_local_schema_analysis_db(conn)
+    started = time.monotonic()
+
+    def progress_guard():
+        return 1 if time.monotonic() - started > timeout_seconds else 0
+
+    analysis.set_progress_handler(progress_guard, 5000)
+    try:
+        cursor = analysis.execute(sql)
+        columns = [item[0] for item in (cursor.description or [])]
+        rows = cursor.fetchmany(max(1, min(int(row_limit), 500)) + 1)
+        truncated = len(rows) > row_limit
+        rows = rows[:row_limit]
+
+        serialised_rows = []
+        for row in rows:
+            serialised_rows.append(
+                {
+                    columns[index]: row[index]
+                    for index in range(len(columns))
+                }
+            )
+
+        result = {
+            "sql": sql,
+            "columns": columns,
+            "rows": serialised_rows,
+            "row_count": len(serialised_rows),
+            "truncated": truncated,
+        }
+
+        encoded = json.dumps(result, ensure_ascii=False, default=str)
+        if len(encoded) > 50000:
+            result["rows"] = serialised_rows[:50]
+            result["row_count"] = len(result["rows"])
+            result["truncated"] = True
+            result["note"] = "Result was truncated by QueryBridge's local analysis context limit."
+
+        return result
+    except sqlite3.OperationalError as exc:
+        if "interrupted" in str(exc).casefold():
+            raise ValueError("Local schema SELECT exceeded the analysis time limit.") from exc
+        raise ValueError(f"Local schema SELECT failed: {exc}") from exc
+    finally:
+        analysis.close()
+
+
+def local_schema_sql_reference():
+    return """LOCAL SCHEMA SQL TABLES
+
+schema_tables(
+  table_id, catalog, schema_name, table_name, table_type, is_temporary, captured_at
+)
+
+schema_fields(
+  field_id, table_id, catalog, schema_name, table_name,
+  ordinal_position, column_name, data_type, nullable, comment
+)
+
+schema_relationships(
+  relationship_id,
+  left_catalog, left_schema, left_table, left_column,
+  right_catalog, right_schema, right_table, right_column,
+  confidence, source, notes
+)
+
+schema_knowledge(
+  knowledge_id, title, category, content, created_at, updated_at
+)
+
+These are isolated local copies of QueryBridge metadata for analysis. They do not contain Databricks business rows."""
+
+
+def parse_schema_chat_agent_response(raw):
+    payload = extract_json_payload(raw)
+    if not isinstance(payload, dict):
+        return {"kind": "answer", "answer": raw}
+
+    kind = str(
+        payload.get("kind")
+        or payload.get("type")
+        or payload.get("action")
+        or ""
+    ).strip().casefold()
+
+    sql = payload.get("sql") or payload.get("query")
+    if sql and kind in {"tool", "select", "query", "local_schema_select", "run_select", ""}:
+        return {
+            "kind": "tool",
+            "tool": "local_schema_select",
+            "sql": str(sql),
+            "purpose": str(payload.get("purpose") or payload.get("reason") or ""),
+        }
+
+    answer = (
+        payload.get("answer")
+        or payload.get("response")
+        or payload.get("content")
+        or payload.get("message")
+    )
+    if answer is not None:
+        return {"kind": "answer", "answer": str(answer)}
+
+    return {"kind": "answer", "answer": raw}
+
+
+def run_schema_chat_agent(conn, messages, max_tool_calls=6):
+    tool_runs = []
+    working = list(messages)
+
+    for _ in range(max_tool_calls + 1):
+        raw = call_llm(conn, working, json_mode=True)
+        decision = parse_schema_chat_agent_response(raw)
+
+        if decision["kind"] == "answer":
+            return decision["answer"], tool_runs
+
+        sql = decision["sql"]
+        result = execute_local_schema_select(conn, sql)
+        tool_runs.append(
+            {
+                "sql": result["sql"],
+                "row_count": result["row_count"],
+                "truncated": result["truncated"],
+                "purpose": decision.get("purpose") or "",
+            }
+        )
+
+        working.append(
+            {
+                "role": "assistant",
+                "content": json.dumps(
+                    {
+                        "kind": "tool",
+                        "tool": "local_schema_select",
+                        "sql": sql,
+                        "purpose": decision.get("purpose") or "",
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        )
+        working.append(
+            {
+                "role": "user",
+                "content": (
+                    "LOCAL_SCHEMA_SELECT_RESULT\n"
+                    + json.dumps(result, ensure_ascii=False, default=str)
+                    + "\n\nUse this result as evidence. Run another local_schema_select if useful, "
+                    "otherwise return your final answer."
+                ),
+            }
+        )
+
+    raise ValueError("Schema Chat reached the local SELECT tool-call limit before producing an answer.")
 
 
 def get_llm_settings(conn):
