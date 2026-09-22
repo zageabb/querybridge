@@ -202,10 +202,10 @@ def init_db():
         conn.execute(
             """
             UPDATE qb_ai_skills
-            SET name = ?, description = ?, instructions = ?
+            SET name = ?, description = ?
             WHERE skill_key = ? AND builtin = 1
             """,
-            (name, description, instructions, skill_key),
+            (name, description, skill_key),
         )
 
     conn.commit()
@@ -2279,6 +2279,60 @@ def ai_skills():
     )
 
 
+
+@app.post("/ai-skills/create")
+def create_ai_skill():
+    name = (request.form.get("name") or "").strip()
+    description = (request.form.get("description") or "").strip()
+    instructions = (request.form.get("instructions") or "").strip()
+    if not name or not instructions:
+        flash("Custom skill name and instructions are required.", "error")
+        return redirect(url_for("ai_skills"))
+
+    skill_key = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")[:100] or "custom-skill"
+    conn = db()
+    base_key = skill_key
+    suffix = 2
+    while conn.execute("SELECT 1 FROM qb_ai_skills WHERE skill_key = ?", (skill_key,)).fetchone():
+        skill_key = f"{base_key}-{suffix}"
+        suffix += 1
+
+    conn.execute(
+        """
+        INSERT INTO qb_ai_skills
+        (skill_key, name, description, instructions, enabled, builtin, updated_at)
+        VALUES (?, ?, ?, ?, 1, 0, ?)
+        """,
+        (skill_key, name[:180], description[:1000], instructions, now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    flash(f'Custom AI skill "{name}" created and enabled.', "success")
+    return redirect(url_for("ai_skills"))
+
+
+@app.post("/ai-skills/<int:skill_id>/delete")
+def delete_ai_skill(skill_id):
+    conn = db()
+    row = conn.execute(
+        "SELECT name, builtin FROM qb_ai_skills WHERE id = ?",
+        (skill_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return Response("AI skill not found.", status=404, mimetype="text/plain")
+    if row["builtin"]:
+        conn.close()
+        flash("Built-in AI skills cannot be deleted; disable them instead.", "error")
+        return redirect(url_for("ai_skills"))
+
+    conn.execute("DELETE FROM qb_ai_skills WHERE id = ?", (skill_id,))
+    conn.commit()
+    conn.close()
+    flash(f'Custom AI skill "{row["name"]}" deleted.', "success")
+    return redirect(url_for("ai_skills"))
+
+
 @app.post("/ai-skills/<int:skill_id>/toggle")
 def toggle_ai_skill(skill_id):
     conn = db()
@@ -2555,17 +2609,18 @@ def guess_relationships():
 def schema_chat():
     conn = db()
     settings = get_llm_settings(conn)
-    messages = [
-        dict(row)
-        for row in conn.execute(
-            """
-            SELECT id, role, content, created_at
-            FROM qb_chat_messages
-            ORDER BY id
-            LIMIT 200
-            """
-        ).fetchall()
-    ]
+    messages = []
+    for row in conn.execute(
+        """
+        SELECT id, role, content, created_at
+        FROM qb_chat_messages
+        ORDER BY id
+        LIMIT 200
+        """
+    ).fetchall():
+        item = dict(row)
+        item["rendered"] = render_markdown_html(item["content"]) if item["role"] == "assistant" else None
+        messages.append(item)
     table_count = conn.execute("SELECT COUNT(*) n FROM qb_tables").fetchone()["n"]
     knowledge_count = conn.execute("SELECT COUNT(*) n FROM qb_knowledge").fetchone()["n"]
     conn.close()
@@ -2630,7 +2685,11 @@ When you write SQL, prefer explicit JOIN clauses and fully qualified names when 
             (answer, now_iso()),
         )
         conn.commit()
-        return jsonify({"ok": True, "answer": answer})
+        return jsonify({
+            "ok": True,
+            "answer": answer,
+            "html": str(render_markdown_html(answer)),
+        })
     except Exception as exc:
         conn.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 500
