@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QueryBridge - AI Skills</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+    <div>
+        <div class="brand">QueryBridge</div>
+        <div class="subtitle">Governed AI schema skills</div>
+    </div>
+    <nav>
+        <a href="{{ url_for('index') }}">Metadata</a>
+        <a href="{{ url_for('builder') }}">Query Builder</a>
+        <a href="{{ url_for('knowledge') }}">Knowledge</a>
+        <a href="{{ url_for('schema_chat') }}">Schema Chat</a>
+        <a class="active" href="{{ url_for('ai_skills') }}">AI Skills</a>
+        <a href="{{ url_for('llm_setup') }}">LLM Setup</a>
+    </nav>
+</header>
+
+<main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <section class="hero">
+        <div>
+            <h1>AI Skills & Schema Proposals</h1>
+            <p>Give the local LLM bounded schema skills, then review every proposed structural change before it is applied.</p>
+        </div>
+        <div class="stats">
+            <div><strong>{{ table_count }}</strong><span>tables</span></div>
+            <div><strong>{{ field_count }}</strong><span>fields</span></div>
+            <div><strong>{{ skills|selectattr('enabled')|list|length }}</strong><span>skills on</span></div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h2>Create AI schema proposal</h2>
+        <p>Ask the LLM to review links, field types, missing fields or the table structure. It can only produce a proposal; QueryBridge will not change the schema until you approve it.</p>
+        <form method="post" action="{{ url_for('create_schema_proposal') }}">
+            <label>What should the AI review?
+                <textarea name="request_text" rows="5" placeholder="Examples: Review the SAP/Procure links; check likely field types; identify missing key fields; propose a cleaner table model."></textarea>
+            </label>
+
+            <fieldset class="skill-picker">
+                <legend>Skills to use</legend>
+                {% for skill in skills %}
+                <label class="skill-choice {% if not skill.enabled %}disabled-skill{% endif %}">
+                    <input type="checkbox" name="skills" value="{{ skill.skill_key }}" {% if skill.enabled %}checked{% else %}disabled{% endif %}>
+                    <span><strong>{{ skill.name }}</strong><small>{{ skill.description }}</small></span>
+                </label>
+                {% endfor %}
+            </fieldset>
+            <button class="primary" type="submit" {% if not table_count %}disabled{% endif %}>Generate proposal</button>
+        </form>
+    </section>
+
+    <section class="section-title compact">
+        <div>
+            <h1>Skills</h1>
+            <p>Built-in skill instructions can be tuned locally. Disabling a skill removes it from AI schema planning.</p>
+        </div>
+    </section>
+
+    <div class="skill-list">
+        {% for skill in skills %}
+        <details class="skill-card">
+            <summary>
+                <div>
+                    <strong>{{ skill.name }}</strong>
+                    <span class="muted">{{ skill.skill_key }}</span>
+                </div>
+                <span class="status {% if skill.enabled %}good{% else %}todo{% endif %}">{{ 'enabled' if skill.enabled else 'disabled' }}</span>
+            </summary>
+            <div class="skill-body">
+                <p>{{ skill.description }}</p>
+                <form method="post" action="{{ url_for('update_ai_skill', skill_id=skill.id) }}">
+                    <label>Instructions
+                        <textarea name="instructions" rows="6" required>{{ skill.instructions }}</textarea>
+                    </label>
+                    <button class="secondary" type="submit">Save instructions</button>
+                </form>
+                <form method="post" action="{{ url_for('toggle_ai_skill', skill_id=skill.id) }}">
+                    <button class="{% if skill.enabled %}danger{% else %}primary{% endif %}" type="submit">{{ 'Disable' if skill.enabled else 'Enable' }} skill</button>
+                </form>
+            </div>
+        </details>
+        {% endfor %}
+    </div>
+
+    <section class="section-title compact proposal-heading" id="proposals">
+        <div>
+            <h1>Schema change proposals</h1>
+            <p>AI changes stay here until explicitly applied or rejected.</p>
+        </div>
+        <span class="status good">{{ proposals|length }} shown</span>
+    </section>
+
+    {% if proposals %}
+    <div class="proposal-list">
+        {% for proposal in proposals %}
+        <details class="proposal-card" {% if proposal.status == 'proposed' %}open{% endif %}>
+            <summary>
+                <div>
+                    <strong>#{{ proposal.id }} · {{ proposal.title }}</strong>
+                    <span class="muted">{{ proposal.model or 'model not recorded' }}</span>
+                </div>
+                <span class="proposal-status {{ proposal.status }}">{{ proposal.status }}</span>
+            </summary>
+            <div class="proposal-body">
+                {% if proposal.summary %}<div class="proposal-summary">{{ proposal.summary }}</div>{% endif %}
+                <p class="hint">Skills: {{ proposal.skill_key or 'none' }} · created {{ proposal.created_at[:16].replace('T', ' ') }}</p>
+
+                {% if proposal.operations %}
+                <div class="operation-list">
+                    {% for op in proposal.operations %}
+                    <article class="operation-card">
+                        <div class="operation-action">{{ op.action }}</div>
+                        <pre>{{ op | tojson(indent=2) }}</pre>
+                    </article>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-library">The AI returned no valid schema operations.</div>
+                {% endif %}
+
+                {% if proposal.status == 'proposed' %}
+                    {% if not proposal.valid_now %}
+                    <div class="flash error">This proposal no longer validates against the current schema. Generate a fresh proposal.</div>
+                    {% endif %}
+                    <div class="proposal-actions">
+                        <form method="post" action="{{ url_for('apply_schema_proposal', proposal_id=proposal.id) }}" onsubmit="return confirm('Apply these changes to the local QueryBridge schema model? This does not alter Databricks.')">
+                            <button class="primary" type="submit" {% if not proposal.operations or not proposal.valid_now %}disabled{% endif %}>Apply proposal</button>
+                        </form>
+                        <form method="post" action="{{ url_for('reject_schema_proposal', proposal_id=proposal.id) }}">
+                            <button class="danger" type="submit">Reject</button>
+                        </form>
+                    </div>
+                {% endif %}
+            </div>
+        </details>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-library">No AI schema proposals yet.</div>
+    {% endif %}
+</main>
+</body>
+</html>
