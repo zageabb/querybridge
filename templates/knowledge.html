@@ -135,6 +135,60 @@
     <div class="empty-library">No additional schema knowledge has been added yet.</div>
     {% endif %}
 
+
+    <section class="panel relationship-control-panel" id="relationship-controls">
+        <div class="panel-head">
+            <div>
+                <h2>Relationship controls</h2>
+                <p>Manage the old heuristic links separately from AI/manual/reviewed relationships.</p>
+            </div>
+            <span class="status {% if auto_inference_enabled %}todo{% else %}good{% endif %}">
+                Heuristic auto-links {{ 'ON' if auto_inference_enabled else 'OFF' }}
+            </span>
+        </div>
+
+        <div class="relationship-source-summary">
+            {% for source, count in relationship_source_counts.items() %}
+            <div>
+                <strong>{{ count }}</strong>
+                <span>{{ source }}</span>
+            </div>
+            {% else %}
+            <div>
+                <strong>0</strong>
+                <span>links</span>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="relationship-control-actions">
+            <form method="post" action="{{ url_for('clear_auto_relationships') }}"
+                  onsubmit="return confirm('Delete all {{ auto_link_count }} auto-generated heuristic links? AI, approved, imported and manual links will be kept.')">
+                <button class="danger" type="submit" {% if not auto_link_count %}disabled{% endif %}>
+                    Clear {{ auto_link_count }} auto-generated link{% if auto_link_count != 1 %}s{% endif %}
+                </button>
+            </form>
+
+            <form method="post" action="{{ url_for('set_auto_relationship_inference') }}">
+                <input type="hidden" name="enabled" value="{{ 0 if auto_inference_enabled else 1 }}">
+                <button class="secondary" type="submit">
+                    {% if auto_inference_enabled %}
+                        Disable heuristic auto-links
+                    {% else %}
+                        Enable heuristic auto-links
+                    {% endif %}
+                </button>
+            </form>
+        </div>
+
+        <p class="hint">
+            Clearing only removes relationships whose source is <code>auto</code>.
+            Sources such as <code>llm</code>, <code>ai-approved</code>, <code>manual</code> and reviewed imported SQL links are preserved.
+            Heuristic generation is off by default so cleared links do not reappear after imports or AI proposal changes.
+        </p>
+    </section>
+
+
     <section class="section-title compact relationship-heading" id="relationships">
         <div>
             <h1>Known & inferred links</h1>
