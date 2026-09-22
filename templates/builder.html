@@ -181,6 +181,8 @@ const schemaTableMap = new Map(schemaTables.map(function (table) {
 let selected = [];
 let importedState = null;
 let importedRelationshipCandidates = [];
+let tableAliases = {};
+let refreshTimer = null;
 const builderGrid = document.querySelector(".builder-grid");
 const leftSplitter = document.getElementById("splitter-left");
 const rightSplitter = document.getElementById("splitter-right");
@@ -347,28 +349,55 @@ function removeField(index) {
     refreshSql();
 }
 
+function scheduleRefreshSql() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refreshSql, 220);
+}
+
 function renderFields() {
     if (!selectedFields) return;
     selectedFields.innerHTML = "";
     emptyDrop.style.display = selected.length ? "none" : "block";
 
     selected.forEach(function (item, index) {
-        const pill = document.createElement("button");
-        pill.type = "button";
-        pill.className = "selected-field" + (item.kind === "expression" ? " expression-field" : "");
-        const label = item.kind === "expression"
+        const editor = document.createElement("div");
+        editor.className = "selected-field-editor" + (item.kind === "expression" ? " expression-field" : "");
+
+        const fieldLabel = document.createElement("div");
+        fieldLabel.className = "selected-field-label";
+        fieldLabel.textContent = item.kind === "expression"
             ? (item.label || item.sql || "Expression")
-            : item.column_name + (item.output_alias ? " → " + item.output_alias : "");
-        pill.innerHTML = "<span>" + escapeHtml(label) + "</span><b>×</b>";
-        pill.title = item.kind === "expression" ? (item.sql || label) : label;
-        pill.addEventListener("click", function () { removeField(index); });
-        selectedFields.appendChild(pill);
+            : item.column_name;
+        fieldLabel.title = item.kind === "expression" ? (item.sql || fieldLabel.textContent) : item.column_name;
+        editor.appendChild(fieldLabel);
+
+        if (item.kind !== "expression") {
+            const aliasInput = document.createElement("input");
+            aliasInput.className = "selected-field-alias";
+            aliasInput.type = "text";
+            aliasInput.placeholder = "Output alias";
+            aliasInput.value = item.output_alias || "";
+            aliasInput.title = "Optional SELECT alias";
+            aliasInput.addEventListener("input", function () {
+                item.output_alias = aliasInput.value;
+                scheduleRefreshSql();
+            });
+            editor.appendChild(aliasInput);
+        }
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "selected-field-remove";
+        remove.textContent = "×";
+        remove.title = "Remove field";
+        remove.addEventListener("click", function () { removeField(index); });
+        editor.appendChild(remove);
+
+        selectedFields.appendChild(editor);
     });
 
     syncFieldHighlights();
-    if (importedState) {
-        requestAnimationFrame(renderQueryEntities);
-    }
+    requestAnimationFrame(renderQueryEntities);
 }
 
 function syncFieldHighlights() {
@@ -473,10 +502,38 @@ function entityFieldRow(source, column) {
     return row;
 }
 
+function currentEntitySources() {
+    if (importedState) {
+        return importedState.sources || [];
+    }
+
+    const seen = new Set();
+    const sources = [];
+    selected.forEach(function (item) {
+        if (item.kind === "expression" || item.table_id == null) return;
+        const tableId = Number(item.table_id);
+        if (seen.has(tableId) || !schemaTableMap.has(tableId)) return;
+        seen.add(tableId);
+        const table = schemaTableMap.get(tableId);
+        const defaultAlias = "t" + sources.length + 1;
+        sources.push({
+            role: sources.length === 0 ? "from" : "join",
+            table_id: tableId,
+            catalog: table.catalog,
+            schema_name: table.schema_name,
+            table_name: table.table_name,
+            alias: tableAliases[String(tableId)] || defaultAlias,
+            matched: true,
+            source_sql: table.table_name
+        });
+    });
+    return sources;
+}
+
 function renderQueryEntities() {
     if (!queryEntitiesPanel || !queryEntityCards) return;
 
-    const sources = importedState ? (importedState.sources || []) : [];
+    const sources = currentEntitySources();
     if (!sources.length) {
         queryEntitiesPanel.hidden = true;
         queryEntityCards.innerHTML = "";
@@ -503,17 +560,34 @@ function renderQueryEntities() {
         title.textContent = source.table_name || source.source_sql || "Unmatched source";
         const subtitle = document.createElement("small");
         const qualifier = [source.catalog, source.schema_name].filter(Boolean).join(".");
-        subtitle.textContent = (source.alias ? "alias " + source.alias : "no alias")
-            + (qualifier ? " · " + qualifier : "");
+        subtitle.textContent = qualifier || "Local schema table";
         titleWrap.appendChild(title);
         titleWrap.appendChild(subtitle);
+
+        const headControls = document.createElement("div");
+        headControls.className = "entity-head-controls";
 
         const role = document.createElement("span");
         role.className = "entity-source-role";
         role.textContent = source.role === "from" ? "FROM" : "JOIN";
+        headControls.appendChild(role);
+
+        if (source.table_id) {
+            const aliasInput = document.createElement("input");
+            aliasInput.className = "entity-alias-input";
+            aliasInput.type = "text";
+            aliasInput.placeholder = source.alias || "table alias";
+            aliasInput.value = tableAliases[String(source.table_id)] || source.alias || "";
+            aliasInput.title = "Table alias used in generated SQL";
+            aliasInput.addEventListener("input", function () {
+                tableAliases[String(source.table_id)] = aliasInput.value;
+                scheduleRefreshSql();
+            });
+            headControls.appendChild(aliasInput);
+        }
 
         head.appendChild(titleWrap);
-        head.appendChild(role);
+        head.appendChild(headControls);
         card.appendChild(head);
 
         const body = document.createElement("div");
@@ -640,7 +714,11 @@ async function refreshSql() {
     const response = await fetch("/api/build-sql", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({fields: selected, imported_state: importedState})
+        body: JSON.stringify({
+            fields: selected,
+            imported_state: importedState,
+            table_aliases: tableAliases
+        })
     });
     const data = await response.json();
     sqlBox.textContent = data.sql || "-- No SQL generated.";
@@ -679,6 +757,7 @@ if (clearButton) {
         selected = [];
         importedState = null;
         importedRelationshipCandidates = [];
+        tableAliases = {};
         if (importedSummary) {
             importedSummary.hidden = true;
             importedSummary.innerHTML = "";
@@ -784,6 +863,12 @@ if (parseImportButton) {
             importedState = data.state;
             importedRelationshipCandidates = data.relationship_candidates || [];
             selected = data.fields || [];
+            tableAliases = {};
+            (importedState.sources || []).forEach(function (source) {
+                if (source.table_id && source.alias) {
+                    tableAliases[String(source.table_id)] = source.alias;
+                }
+            });
             renderFields();
             renderImportedSummary(data);
             renderQueryEntities();
