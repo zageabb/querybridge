@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QueryBridge - Schema Chat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="chat-body">
+<header class="topbar">
+    <div>
+        <div class="brand">QueryBridge</div>
+        <div class="subtitle">Ask the captured schema</div>
+    </div>
+    <nav>
+        <a href="{{ url_for('index') }}">Metadata</a>
+        <a href="{{ url_for('builder') }}">Query Builder</a>
+        <a href="{{ url_for('knowledge') }}">Knowledge</a>
+        <a class="active" href="{{ url_for('schema_chat') }}">Schema Chat</a>
+        <a href="{{ url_for('llm_setup') }}">LLM Setup</a>
+    </nav>
+</header>
+
+<main class="chat-shell">
+    <aside class="chat-context">
+        <h2>Schema context</h2>
+        <div class="chat-context-stat"><strong>{{ table_count }}</strong><span>captured tables</span></div>
+        <div class="chat-context-stat"><strong>{{ knowledge_count }}</strong><span>knowledge entries</span></div>
+        <div class="chat-context-stat"><strong>{{ settings.model or 'Not set' }}</strong><span>LLM model</span></div>
+        <p>The assistant sees the current schema, inferred links and knowledge library with each question.</p>
+        <a class="secondary button-link wide" href="{{ url_for('knowledge') }}">Open Knowledge</a>
+        <a class="secondary button-link wide" href="{{ url_for('llm_setup') }}">LLM Setup</a>
+        <form method="post" action="{{ url_for('clear_schema_chat') }}" onsubmit="return confirm('Clear the schema chat history?')">
+            <button class="danger wide" type="submit">Clear chat</button>
+        </form>
+    </aside>
+
+    <section class="chat-workspace">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endwith %}
+
+        <div id="chat-messages" class="chat-messages">
+            {% if not messages %}
+            <div class="chat-welcome">
+                <h1>Ask about your Databricks schema</h1>
+                <p>Examples: “Which tables look related to purchase orders?”, “How do I join these project tables?”, or “Build a query that returns supplier and PO details.”</p>
+            </div>
+            {% endif %}
+            {% for message in messages %}
+            <div class="chat-message {{ message.role }}">
+                <div class="chat-role">{{ "You" if message.role == "user" else "QueryBridge" }}</div>
+                <div class="chat-text">{{ message.content }}</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <form id="chat-form" class="chat-composer">
+            <textarea id="chat-input" rows="3" placeholder="Ask about tables, fields, joins, packages, or SQL..." required></textarea>
+            <button id="send-button" class="primary" type="submit">Send</button>
+        </form>
+    </section>
+</main>
+
+<script>
+const form = document.getElementById("chat-form");
+const input = document.getElementById("chat-input");
+const messages = document.getElementById("chat-messages");
+const sendButton = document.getElementById("send-button");
+
+function appendMessage(role, text) {
+    const welcome = messages.querySelector(".chat-welcome");
+    if (welcome) welcome.remove();
+
+    const row = document.createElement("div");
+    row.className = "chat-message " + role;
+
+    const roleBox = document.createElement("div");
+    roleBox.className = "chat-role";
+    roleBox.textContent = role === "user" ? "You" : "QueryBridge";
+
+    const textBox = document.createElement("div");
+    textBox.className = "chat-text";
+    textBox.textContent = text;
+
+    row.appendChild(roleBox);
+    row.appendChild(textBox);
+    messages.appendChild(row);
+    messages.scrollTop = messages.scrollHeight;
+    return row;
+}
+
+form.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    const question = input.value.trim();
+    if (!question) return;
+
+    appendMessage("user", question);
+    input.value = "";
+    input.disabled = true;
+    sendButton.disabled = true;
+    sendButton.textContent = "Thinking...";
+
+    const pending = appendMessage("assistant", "Analysing the schema...");
+
+    try {
+        const response = await fetch("{{ url_for('api_schema_chat') }}", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message: question})
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "Chat request failed");
+        pending.querySelector(".chat-text").textContent = data.answer;
+    } catch (error) {
+        pending.querySelector(".chat-text").textContent = "Error: " + error.message;
+        pending.classList.add("error-message");
+    } finally {
+        input.disabled = false;
+        sendButton.disabled = false;
+        sendButton.textContent = "Send";
+        input.focus();
+        messages.scrollTop = messages.scrollHeight;
+    }
+});
+
+input.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        form.requestSubmit();
+    }
+});
+
+messages.scrollTop = messages.scrollHeight;
+</script>
+</body>
+</html>
