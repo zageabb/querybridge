@@ -383,6 +383,459 @@ def infer_relationships(conn):
 
 
 
+
+def render_markdown_html(content):
+    """Render Markdown safely, including GitHub-style tables and fenced code."""
+    safe_source = str(escape(content or ""))
+    rendered = markdown_lib.markdown(
+        safe_source,
+        extensions=["tables", "fenced_code", "sane_lists"],
+        output_format="html5",
+    )
+    return Markup(rendered)
+
+
+def ai_skill_rows(conn, enabled_only=False):
+    sql = """
+        SELECT id, skill_key, name, description, instructions, enabled, builtin, updated_at
+        FROM qb_ai_skills
+    """
+    if enabled_only:
+        sql += " WHERE enabled = 1"
+    sql += " ORDER BY builtin DESC, name"
+    return conn.execute(sql).fetchall()
+
+
+def ai_skill_context(skills):
+    return "\n\n".join(
+        f"SKILL: {row['name']} ({row['skill_key']})\n"
+        f"PURPOSE: {row['description']}\n"
+        f"INSTRUCTIONS: {row['instructions']}"
+        for row in skills
+    )
+
+
+def resolve_table(conn, table_name, schema_name=None, catalog=None):
+    if not table_name:
+        return None
+    sql = "SELECT * FROM qb_tables WHERE lower(table_name) = lower(?)"
+    params = [table_name]
+    if schema_name:
+        sql += " AND lower(COALESCE(schema_name,'')) = lower(?)"
+        params.append(schema_name)
+    if catalog:
+        sql += " AND lower(COALESCE(catalog,'')) = lower(?)"
+        params.append(catalog)
+    sql += " ORDER BY id LIMIT 1"
+    return conn.execute(sql, params).fetchone()
+
+
+def resolve_column(conn, table_name, column_name, schema_name=None, catalog=None):
+    if not table_name or not column_name:
+        return None
+    return find_column(conn, table_name, column_name, schema_name, catalog)
+
+
+def operation_reason(operation):
+    return str(operation.get("reason") or "").strip()[:2000]
+
+
+def validate_schema_operations(conn, operations):
+    allowed = {
+        "add_table",
+        "remove_table",
+        "rename_table",
+        "add_field",
+        "remove_field",
+        "rename_field",
+        "change_field_type",
+        "set_field_nullable",
+        "add_relationship",
+        "remove_relationship",
+    }
+    checked = []
+
+    if not isinstance(operations, list):
+        raise ValueError("AI proposal operations must be a list.")
+
+    for index, raw in enumerate(operations, start=1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"Operation {index} is not an object.")
+        op = dict(raw)
+        action = str(op.get("action") or "").strip()
+        if action not in allowed:
+            raise ValueError(f"Operation {index} has unsupported action '{action}'.")
+
+        error = None
+        if action == "add_table":
+            table_name = str(op.get("table_name") or "").strip()
+            if not table_name:
+                error = "table_name is required"
+            elif resolve_table(conn, table_name, op.get("schema_name"), op.get("catalog")):
+                error = "table already exists"
+
+        elif action in {"remove_table", "rename_table"}:
+            table = resolve_table(conn, op.get("table_name"), op.get("schema_name"), op.get("catalog"))
+            if not table:
+                error = "table does not exist"
+            elif action == "rename_table":
+                new_name = str(op.get("new_name") or "").strip()
+                if not new_name:
+                    error = "new_name is required"
+                elif resolve_table(conn, new_name, table["schema_name"], table["catalog"]):
+                    error = "target table name already exists"
+
+        elif action in {
+            "add_field",
+            "remove_field",
+            "rename_field",
+            "change_field_type",
+            "set_field_nullable",
+        }:
+            table = resolve_table(conn, op.get("table_name"), op.get("schema_name"), op.get("catalog"))
+            if not table:
+                error = "table does not exist"
+            else:
+                column_name = str(op.get("column_name") or "").strip()
+                column = resolve_column(
+                    conn, table["table_name"], column_name, table["schema_name"], table["catalog"]
+                ) if column_name else None
+
+                if action == "add_field":
+                    if not column_name:
+                        error = "column_name is required"
+                    elif column:
+                        error = "field already exists"
+                    elif not str(op.get("data_type") or "").strip():
+                        error = "data_type is required"
+                elif not column:
+                    error = "field does not exist"
+                elif action == "rename_field":
+                    new_name = str(op.get("new_name") or "").strip()
+                    if not new_name:
+                        error = "new_name is required"
+                    elif resolve_column(
+                        conn, table["table_name"], new_name, table["schema_name"], table["catalog"]
+                    ):
+                        error = "target field name already exists"
+                elif action == "change_field_type" and not str(op.get("data_type") or "").strip():
+                    error = "data_type is required"
+                elif action == "set_field_nullable" and "nullable" not in op:
+                    error = "nullable is required"
+
+        elif action in {"add_relationship", "remove_relationship"}:
+            left = resolve_column(
+                conn,
+                op.get("left_table"),
+                op.get("left_column"),
+                op.get("left_schema"),
+                op.get("left_catalog"),
+            )
+            right = resolve_column(
+                conn,
+                op.get("right_table"),
+                op.get("right_column"),
+                op.get("right_schema"),
+                op.get("right_catalog"),
+            )
+            if not left or not right:
+                error = "relationship fields do not both exist"
+            elif left["table_id"] == right["table_id"]:
+                error = "relationship must connect different tables"
+            elif action == "remove_relationship":
+                rel = conn.execute(
+                    """
+                    SELECT id FROM qb_relationships
+                    WHERE (left_column_id = ? AND right_column_id = ?)
+                       OR (left_column_id = ? AND right_column_id = ?)
+                    LIMIT 1
+                    """,
+                    (
+                        left["column_id"],
+                        right["column_id"],
+                        right["column_id"],
+                        left["column_id"],
+                    ),
+                ).fetchone()
+                if not rel:
+                    error = "relationship does not exist"
+
+        checked.append(
+            {
+                "index": index,
+                "action": action,
+                "operation": op,
+                "valid": error is None,
+                "error": error,
+            }
+        )
+
+    return checked
+
+
+def apply_schema_operations(conn, operations):
+    checked = validate_schema_operations(conn, operations)
+    invalid = [item for item in checked if not item["valid"]]
+    if invalid:
+        details = "; ".join(
+            f"#{item['index']} {item['action']}: {item['error']}" for item in invalid
+        )
+        raise ValueError(f"Schema proposal is no longer valid: {details}")
+
+    applied = []
+
+    for item in checked:
+        op = item["operation"]
+        action = item["action"]
+        reason = operation_reason(op)
+
+        if action == "add_table":
+            conn.execute(
+                """
+                INSERT INTO qb_tables
+                (catalog, schema_name, table_name, table_type, is_temporary, raw_source, captured_at)
+                VALUES (?, ?, ?, ?, 0, ?, ?)
+                """,
+                (
+                    op.get("catalog"),
+                    op.get("schema_name"),
+                    str(op["table_name"]).strip(),
+                    str(op.get("table_type") or "table").strip(),
+                    json.dumps({"source": "ai-approved", "reason": reason}),
+                    now_iso(),
+                ),
+            )
+
+        elif action == "remove_table":
+            table = resolve_table(conn, op.get("table_name"), op.get("schema_name"), op.get("catalog"))
+            conn.execute("DELETE FROM qb_tables WHERE id = ?", (table["id"],))
+
+        elif action == "rename_table":
+            table = resolve_table(conn, op.get("table_name"), op.get("schema_name"), op.get("catalog"))
+            conn.execute(
+                "UPDATE qb_tables SET table_name = ?, captured_at = ? WHERE id = ?",
+                (str(op["new_name"]).strip(), now_iso(), table["id"]),
+            )
+
+        elif action == "add_field":
+            table = resolve_table(conn, op.get("table_name"), op.get("schema_name"), op.get("catalog"))
+            ordinal = conn.execute(
+                "SELECT COALESCE(MAX(ordinal_position), 0) + 1 n FROM qb_columns WHERE table_id = ?",
+                (table["id"],),
+            ).fetchone()["n"]
+            nullable = op.get("nullable")
+            nullable_value = None if nullable is None else int(bool(nullable))
+            conn.execute(
+                """
+                INSERT INTO qb_columns
+                (table_id, ordinal_position, column_name, data_type, nullable, comment, raw_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    table["id"],
+                    ordinal,
+                    str(op["column_name"]).strip(),
+                    str(op["data_type"]).strip(),
+                    nullable_value,
+                    str(op.get("comment") or "").strip() or None,
+                    json.dumps({"source": "ai-approved", "reason": reason}),
+                ),
+            )
+
+        elif action == "remove_field":
+            column = resolve_column(
+                conn, op.get("table_name"), op.get("column_name"), op.get("schema_name"), op.get("catalog")
+            )
+            conn.execute("DELETE FROM qb_columns WHERE id = ?", (column["column_id"],))
+
+        elif action == "rename_field":
+            column = resolve_column(
+                conn, op.get("table_name"), op.get("column_name"), op.get("schema_name"), op.get("catalog")
+            )
+            conn.execute(
+                "UPDATE qb_columns SET column_name = ? WHERE id = ?",
+                (str(op["new_name"]).strip(), column["column_id"]),
+            )
+
+        elif action == "change_field_type":
+            column = resolve_column(
+                conn, op.get("table_name"), op.get("column_name"), op.get("schema_name"), op.get("catalog")
+            )
+            conn.execute(
+                "UPDATE qb_columns SET data_type = ? WHERE id = ?",
+                (str(op["data_type"]).strip(), column["column_id"]),
+            )
+
+        elif action == "set_field_nullable":
+            column = resolve_column(
+                conn, op.get("table_name"), op.get("column_name"), op.get("schema_name"), op.get("catalog")
+            )
+            conn.execute(
+                "UPDATE qb_columns SET nullable = ? WHERE id = ?",
+                (int(bool(op.get("nullable"))), column["column_id"]),
+            )
+
+        elif action == "add_relationship":
+            left = resolve_column(
+                conn, op.get("left_table"), op.get("left_column"), op.get("left_schema"), op.get("left_catalog")
+            )
+            right = resolve_column(
+                conn, op.get("right_table"), op.get("right_column"), op.get("right_schema"), op.get("right_catalog")
+            )
+            if left["column_id"] > right["column_id"]:
+                left, right = right, left
+            confidence = max(0.0, min(1.0, float(op.get("confidence", 0.8))))
+            conn.execute(
+                """
+                INSERT INTO qb_relationships
+                (left_table_id, left_column_id, right_table_id, right_column_id, confidence, source, notes)
+                VALUES (?, ?, ?, ?, ?, 'ai-approved', ?)
+                ON CONFLICT(left_column_id, right_column_id)
+                DO UPDATE SET confidence = excluded.confidence, source = 'ai-approved', notes = excluded.notes
+                """,
+                (
+                    left["table_id"],
+                    left["column_id"],
+                    right["table_id"],
+                    right["column_id"],
+                    confidence,
+                    reason,
+                ),
+            )
+
+        elif action == "remove_relationship":
+            left = resolve_column(
+                conn, op.get("left_table"), op.get("left_column"), op.get("left_schema"), op.get("left_catalog")
+            )
+            right = resolve_column(
+                conn, op.get("right_table"), op.get("right_column"), op.get("right_schema"), op.get("right_catalog")
+            )
+            conn.execute(
+                """
+                DELETE FROM qb_relationships
+                WHERE (left_column_id = ? AND right_column_id = ?)
+                   OR (left_column_id = ? AND right_column_id = ?)
+                """,
+                (
+                    left["column_id"],
+                    right["column_id"],
+                    right["column_id"],
+                    left["column_id"],
+                ),
+            )
+
+        applied.append(action)
+
+    infer_relationships(conn)
+    return applied
+
+
+def normalise_ai_operations(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("The AI response was not a JSON object.")
+    operations = payload.get("operations")
+    if not isinstance(operations, list):
+        raise ValueError("The AI response did not contain an operations list.")
+    return {
+        "title": str(payload.get("title") or "AI schema proposal").strip()[:240],
+        "summary": str(payload.get("summary") or "").strip()[:4000],
+        "operations": operations,
+    }
+
+
+def create_ai_schema_proposal(conn, request_text, selected_skill_keys=None):
+    all_skills = ai_skill_rows(conn, enabled_only=True)
+    selected = set(selected_skill_keys or [])
+    skills = [row for row in all_skills if not selected or row["skill_key"] in selected]
+    if not skills:
+        raise ValueError("No enabled AI skills are selected.")
+
+    context = schema_context_text(conn, include_relationships=True, max_chars=70000)
+    settings = get_llm_settings(conn)
+
+    system = """You are QueryBridge's governed schema-change planner.
+You work only on QueryBridge's LOCAL metadata model; you are not modifying live Databricks.
+Use the supplied skills, schema and knowledge. Return JSON only.
+
+Supported operations:
+- add_table: table_name, optional schema_name/catalog/table_type, reason
+- remove_table: table_name, optional schema_name/catalog, reason
+- rename_table: table_name, new_name, optional schema_name/catalog, reason
+- add_field: table_name, column_name, data_type, optional nullable/comment/schema_name/catalog, reason
+- remove_field: table_name, column_name, optional schema_name/catalog, reason
+- rename_field: table_name, column_name, new_name, optional schema_name/catalog, reason
+- change_field_type: table_name, column_name, data_type, optional schema_name/catalog, reason
+- set_field_nullable: table_name, column_name, nullable, optional schema_name/catalog, reason
+- add_relationship: left_table, left_column, right_table, right_column, optional left_schema/right_schema/left_catalog/right_catalog/confidence, reason
+- remove_relationship: the same relationship identity fields, reason
+
+Return:
+{
+  "title": "short title",
+  "summary": "why these changes are proposed",
+  "operations": [...]
+}
+
+Rules:
+- Never invent an existing table or field for operations that require an existing object.
+- Structural additions may introduce a new table/field only when the user's request or knowledge supports it.
+- Destructive operations must have a clear reason.
+- Prefer no change over a weak guess.
+- Relationships must be useful equality joins.
+- Confidence is 0..1.
+- Do not emit SQL DDL; emit only the structured operations above.
+"""
+
+    user = (
+        "ACTIVE AI SKILLS\n"
+        + ai_skill_context(skills)
+        + "\n\nUSER REQUEST\n"
+        + (request_text or "Review the schema and propose useful, knowledge-grounded improvements.")
+        + "\n\nSCHEMA AND KNOWLEDGE\n"
+        + context
+    )
+
+    raw = call_llm(
+        conn,
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        json_mode=True,
+    )
+    parsed = extract_json_payload(raw)
+    proposal = normalise_ai_operations(parsed)
+    checked = validate_schema_operations(conn, proposal["operations"])
+
+    valid_operations = [item["operation"] for item in checked if item["valid"]]
+    invalid = [item for item in checked if not item["valid"]]
+    if invalid:
+        rejected_text = "; ".join(
+            f"#{item['index']} {item['action']}: {item['error']}" for item in invalid
+        )
+        proposal["summary"] = (
+            proposal["summary"]
+            + ("\n\n" if proposal["summary"] else "")
+            + "QueryBridge rejected invalid AI operations before saving: "
+            + rejected_text
+        )
+    proposal["operations"] = valid_operations
+
+    cursor = conn.execute(
+        """
+        INSERT INTO qb_schema_proposals
+        (title, summary, skill_key, model, operations_json, status, created_at)
+        VALUES (?, ?, ?, ?, ?, 'proposed', ?)
+        """,
+        (
+            proposal["title"],
+            proposal["summary"],
+            ",".join(row["skill_key"] for row in skills),
+            settings.get("model"),
+            json.dumps(proposal["operations"], ensure_ascii=False),
+            now_iso(),
+        ),
+    )
+    return cursor.lastrowid, len(valid_operations), len(invalid)
+
+
 def get_llm_settings(conn):
     row = conn.execute("SELECT * FROM qb_llm_settings WHERE id = 1").fetchone()
     if not row:
