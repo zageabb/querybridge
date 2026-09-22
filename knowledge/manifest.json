@@ -1,0 +1,48 @@
+{
+  "format": "querybridge-knowledge-manifest",
+  "version": 1,
+  "pack": "TAIJU / SCM",
+  "purpose": "Reusable knowledge gathered from prior discussions for QueryBridge schema reasoning and relationship discovery.",
+  "entries": [
+    {
+      "title": "TAIJU / SCM Cockpit — Core Context",
+      "category": "package",
+      "file": "00_TAIJU_SCM_Context.md"
+    },
+    {
+      "title": "Systems and Source Authority",
+      "category": "business_rule",
+      "file": "01_Systems_and_Source_Authority.md"
+    },
+    {
+      "title": "Procurement Lifecycle and Entity Model",
+      "category": "relationship",
+      "file": "02_Procurement_Lifecycle_and_Entity_Model.md"
+    },
+    {
+      "title": "SAP S/4HANA, OpenText VIM and Ariba Reference",
+      "category": "package",
+      "file": "03_SAP_S4_VIM_Ariba_Reference.md"
+    },
+    {
+      "title": "Project Procure, TSP, Tendering and Reporting",
+      "category": "package",
+      "file": "04_Project_Procure_TSP_Tendering.md"
+    },
+    {
+      "title": "Primavera P6, DPPP and Milestone Relationships",
+      "category": "relationship",
+      "file": "05_P6_DPPP_Milestones.md"
+    },
+    {
+      "title": "Data Quality, Reconciliation and Join Rules",
+      "category": "business_rule",
+      "file": "06_Data_Quality_and_Link_Rules.md"
+    },
+    {
+      "title": "AI Agents, Orchestration and Governance",
+      "category": "general",
+      "file": "07_AI_Agents_and_Governance.md"
+    }
+  ]
+}
