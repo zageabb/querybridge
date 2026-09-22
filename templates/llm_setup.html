@@ -85,12 +85,13 @@
 const loadButton = document.getElementById("load-models");
 const datalist = document.getElementById("ollama-models");
 const status = document.getElementById("model-status");
+const baseUrlInput = document.querySelector('input[name="base_url"]');
 
 loadButton.addEventListener("click", async function () {
     loadButton.disabled = true;
     status.textContent = "Loading models from the saved Ollama URL...";
     try {
-        const response = await fetch("{{ url_for('api_llm_models') }}");
+        const response = await fetch("{{ url_for('api_llm_models') }}?base_url=" + encodeURIComponent(baseUrlInput.value.trim()));
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "Could not load models");
         datalist.innerHTML = "";
