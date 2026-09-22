@@ -615,3 +615,10 @@ body.resizing-panes {
 .chat-text.markdown-document code {
     overflow-wrap: anywhere;
 }
+
+.chat-tool-note {
+    margin-top: 6px;
+    color: #667085;
+    font-size: 11px;
+    text-align: right;
+}
