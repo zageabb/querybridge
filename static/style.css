@@ -622,3 +622,66 @@ body.resizing-panes {
     font-size: 11px;
     text-align: right;
 }
+
+
+/* Databricks SQL -> Query Builder import */
+.canvas-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.import-sql-panel {
+    margin: 16px 0 18px;
+    padding: 16px;
+    border: 1px solid #b2ccff;
+    border-radius: 12px;
+    background: #f8faff;
+}
+.import-sql-panel textarea {
+    min-height: 180px;
+    resize: vertical;
+}
+.import-sql-status {
+    margin-top: 10px;
+    line-height: 1.45;
+}
+.import-link-proposal-wrap {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+.imported-query-summary {
+    margin: 12px 0 16px;
+    padding: 12px 14px;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: white;
+    color: #475467;
+    font-size: 13px;
+}
+.imported-query-summary ul {
+    margin: 9px 0 0;
+    padding-left: 20px;
+}
+.import-summary-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.import-summary-head strong {
+    color: #182230;
+}
+.field.in-query {
+    background: #eef4ff;
+    color: #1849a9;
+    font-weight: 700;
+}
+.selected-field.expression-field {
+    border-style: dashed;
+    color: #6941c6;
+    border-color: #c7b9da;
+    background: #f9f5ff;
+}
