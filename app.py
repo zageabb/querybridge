@@ -453,10 +453,91 @@ def validate_schema_operations(conn, operations):
         "add_relationship",
         "remove_relationship",
     }
-    checked = []
-
     if not isinstance(operations, list):
         raise ValueError("AI proposal operations must be a list.")
+
+    table_rows = conn.execute(
+        "SELECT id, catalog, schema_name, table_name FROM qb_tables ORDER BY id"
+    ).fetchall()
+    tables = {}
+    fields = {}
+    for row in table_rows:
+        key = (
+            (row["catalog"] or "").casefold(),
+            (row["schema_name"] or "").casefold(),
+            row["table_name"].casefold(),
+        )
+        tables[key] = {
+            "catalog": row["catalog"],
+            "schema_name": row["schema_name"],
+            "table_name": row["table_name"],
+        }
+        fields[key] = {
+            value["column_name"].casefold()
+            for value in conn.execute(
+                "SELECT column_name FROM qb_columns WHERE table_id = ?",
+                (row["id"],),
+            ).fetchall()
+        }
+
+    relationships = set()
+    relationship_rows = conn.execute(
+        """
+        SELECT
+            lt.catalog left_catalog, lt.schema_name left_schema, lt.table_name left_table,
+            lc.column_name left_column,
+            rt.catalog right_catalog, rt.schema_name right_schema, rt.table_name right_table,
+            rc.column_name right_column
+        FROM qb_relationships r
+        JOIN qb_tables lt ON lt.id = r.left_table_id
+        JOIN qb_columns lc ON lc.id = r.left_column_id
+        JOIN qb_tables rt ON rt.id = r.right_table_id
+        JOIN qb_columns rc ON rc.id = r.right_column_id
+        """
+    ).fetchall()
+
+    def table_key(catalog, schema_name, table_name):
+        return (
+            (catalog or "").casefold(),
+            (schema_name or "").casefold(),
+            (table_name or "").casefold(),
+        )
+
+    def resolve_state_table(table_name, schema_name=None, catalog=None):
+        if not table_name:
+            return None
+        wanted_name = str(table_name).casefold()
+        wanted_schema = None if schema_name in {None, ""} else str(schema_name).casefold()
+        wanted_catalog = None if catalog in {None, ""} else str(catalog).casefold()
+        candidates = [
+            key for key in tables
+            if key[2] == wanted_name
+            and (wanted_schema is None or key[1] == wanted_schema)
+            and (wanted_catalog is None or key[0] == wanted_catalog)
+        ]
+        return sorted(candidates)[0] if candidates else None
+
+    def field_identity(table_key_value, column_name):
+        return table_key_value + ((column_name or "").casefold(),)
+
+    def relation_identity(left_identity, right_identity):
+        return tuple(sorted((left_identity, right_identity)))
+
+    for row in relationship_rows:
+        left_table_key = table_key(
+            row["left_catalog"], row["left_schema"], row["left_table"]
+        )
+        right_table_key = table_key(
+            row["right_catalog"], row["right_schema"], row["right_table"]
+        )
+        relationships.add(
+            relation_identity(
+                field_identity(left_table_key, row["left_column"]),
+                field_identity(right_table_key, row["right_column"]),
+            )
+        )
+
+    checked = []
 
     for index, raw in enumerate(operations, start=1):
         if not isinstance(raw, dict):
@@ -467,23 +548,59 @@ def validate_schema_operations(conn, operations):
             raise ValueError(f"Operation {index} has unsupported action '{action}'.")
 
         error = None
+
         if action == "add_table":
-            table_name = str(op.get("table_name") or "").strip()
-            if not table_name:
+            name = str(op.get("table_name") or "").strip()
+            key = table_key(op.get("catalog"), op.get("schema_name"), name)
+            if not name:
                 error = "table_name is required"
-            elif resolve_table(conn, table_name, op.get("schema_name"), op.get("catalog")):
+            elif key in tables:
                 error = "table already exists"
+            else:
+                tables[key] = {
+                    "catalog": op.get("catalog"),
+                    "schema_name": op.get("schema_name"),
+                    "table_name": name,
+                }
+                fields[key] = set()
 
         elif action in {"remove_table", "rename_table"}:
-            table = resolve_table(conn, op.get("table_name"), op.get("schema_name"), op.get("catalog"))
-            if not table:
+            key = resolve_state_table(
+                op.get("table_name"), op.get("schema_name"), op.get("catalog")
+            )
+            if not key:
                 error = "table does not exist"
-            elif action == "rename_table":
+            elif action == "remove_table":
+                field_ids = {field_identity(key, field) for field in fields.get(key, set())}
+                relationships = {
+                    rel for rel in relationships
+                    if rel[0] not in field_ids and rel[1] not in field_ids
+                }
+                tables.pop(key, None)
+                fields.pop(key, None)
+            else:
                 new_name = str(op.get("new_name") or "").strip()
+                new_key = table_key(key[0], key[1], new_name)
                 if not new_name:
                     error = "new_name is required"
-                elif resolve_table(conn, new_name, table["schema_name"], table["catalog"]):
+                elif new_key in tables:
                     error = "target table name already exists"
+                else:
+                    existing_fields = fields.pop(key, set())
+                    table_value = tables.pop(key)
+                    table_value["table_name"] = new_name
+                    tables[new_key] = table_value
+                    fields[new_key] = existing_fields
+                    remapped = set()
+                    for rel in relationships:
+                        pair = []
+                        for identity in rel:
+                            if identity[:3] == key:
+                                pair.append(new_key + (identity[3],))
+                            else:
+                                pair.append(identity)
+                        remapped.add(relation_identity(pair[0], pair[1]))
+                    relationships = remapped
 
         elif action in {
             "add_field",
@@ -492,73 +609,100 @@ def validate_schema_operations(conn, operations):
             "change_field_type",
             "set_field_nullable",
         }:
-            table = resolve_table(conn, op.get("table_name"), op.get("schema_name"), op.get("catalog"))
-            if not table:
+            key = resolve_state_table(
+                op.get("table_name"), op.get("schema_name"), op.get("catalog")
+            )
+            if not key:
                 error = "table does not exist"
             else:
                 column_name = str(op.get("column_name") or "").strip()
-                column = resolve_column(
-                    conn, table["table_name"], column_name, table["schema_name"], table["catalog"]
-                ) if column_name else None
+                column_key = column_name.casefold()
+                exists = bool(column_name) and column_key in fields[key]
 
                 if action == "add_field":
                     if not column_name:
                         error = "column_name is required"
-                    elif column:
+                    elif exists:
                         error = "field already exists"
                     elif not str(op.get("data_type") or "").strip():
                         error = "data_type is required"
-                elif not column:
+                    else:
+                        fields[key].add(column_key)
+
+                elif not exists:
                     error = "field does not exist"
+
+                elif action == "remove_field":
+                    identity = field_identity(key, column_name)
+                    relationships = {
+                        rel for rel in relationships
+                        if identity not in rel
+                    }
+                    fields[key].discard(column_key)
+
                 elif action == "rename_field":
                     new_name = str(op.get("new_name") or "").strip()
+                    new_key = new_name.casefold()
                     if not new_name:
                         error = "new_name is required"
-                    elif resolve_column(
-                        conn, table["table_name"], new_name, table["schema_name"], table["catalog"]
-                    ):
+                    elif new_key in fields[key]:
                         error = "target field name already exists"
-                elif action == "change_field_type" and not str(op.get("data_type") or "").strip():
-                    error = "data_type is required"
-                elif action == "set_field_nullable" and "nullable" not in op:
-                    error = "nullable is required"
+                    else:
+                        fields[key].discard(column_key)
+                        fields[key].add(new_key)
+                        old_identity = field_identity(key, column_name)
+                        new_identity = field_identity(key, new_name)
+                        remapped = set()
+                        for rel in relationships:
+                            pair = [
+                                new_identity if identity == old_identity else identity
+                                for identity in rel
+                            ]
+                            remapped.add(relation_identity(pair[0], pair[1]))
+                        relationships = remapped
+
+                elif action == "change_field_type":
+                    if not str(op.get("data_type") or "").strip():
+                        error = "data_type is required"
+
+                elif action == "set_field_nullable":
+                    if "nullable" not in op:
+                        error = "nullable is required"
 
         elif action in {"add_relationship", "remove_relationship"}:
-            left = resolve_column(
-                conn,
-                op.get("left_table"),
-                op.get("left_column"),
-                op.get("left_schema"),
-                op.get("left_catalog"),
+            left_table_key = resolve_state_table(
+                op.get("left_table"), op.get("left_schema"), op.get("left_catalog")
             )
-            right = resolve_column(
-                conn,
-                op.get("right_table"),
-                op.get("right_column"),
-                op.get("right_schema"),
-                op.get("right_catalog"),
+            right_table_key = resolve_state_table(
+                op.get("right_table"), op.get("right_schema"), op.get("right_catalog")
             )
-            if not left or not right:
+            left_column = str(op.get("left_column") or "").strip()
+            right_column = str(op.get("right_column") or "").strip()
+
+            if (
+                not left_table_key
+                or not right_table_key
+                or left_column.casefold() not in fields.get(left_table_key, set())
+                or right_column.casefold() not in fields.get(right_table_key, set())
+            ):
                 error = "relationship fields do not both exist"
-            elif left["table_id"] == right["table_id"]:
+            elif left_table_key == right_table_key:
                 error = "relationship must connect different tables"
-            elif action == "remove_relationship":
-                rel = conn.execute(
-                    """
-                    SELECT id FROM qb_relationships
-                    WHERE (left_column_id = ? AND right_column_id = ?)
-                       OR (left_column_id = ? AND right_column_id = ?)
-                    LIMIT 1
-                    """,
-                    (
-                        left["column_id"],
-                        right["column_id"],
-                        right["column_id"],
-                        left["column_id"],
-                    ),
-                ).fetchone()
-                if not rel:
-                    error = "relationship does not exist"
+            else:
+                rel_key = relation_identity(
+                    field_identity(left_table_key, left_column),
+                    field_identity(right_table_key, right_column),
+                )
+                if action == "add_relationship":
+                    if rel_key in relationships:
+                        error = "relationship already exists"
+                    else:
+                        relationships.add(rel_key)
+                else:
+                    if rel_key not in relationships:
+                        error = "relationship does not exist"
+                    else:
+                        relationships.discard(rel_key)
 
         checked.append(
             {
@@ -571,7 +715,6 @@ def validate_schema_operations(conn, operations):
         )
 
     return checked
-
 
 def apply_schema_operations(conn, operations):
     checked = validate_schema_operations(conn, operations)
