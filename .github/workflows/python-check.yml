@@ -26,6 +26,7 @@ jobs:
           print("\n".join(rules))
           assert "/llm" in rules
           assert "/knowledge" in rules
+          assert "/knowledge/import-pack" in rules
           assert "/chat" in rules
           assert "/api/chat" in rules
           PY
