@@ -3558,6 +3558,89 @@ def reset_metadata():
     return redirect(url_for("index"))
 
 
+
+def normalise_sql_alias(value):
+    value = re.sub(r"[^A-Za-z0-9_]+", "_", str(value or "").strip())
+    value = re.sub(r"_+", "_", value).strip("_")
+    if not value:
+        return None
+    if value[0].isdigit():
+        value = "t_" + value
+    return value[:80]
+
+
+def validate_table_aliases(table_aliases):
+    cleaned = {}
+    used = {}
+    for raw_key, raw_alias in (table_aliases or {}).items():
+        alias = normalise_sql_alias(raw_alias)
+        if not alias:
+            continue
+        key = str(raw_key)
+        folded = alias.casefold()
+        if folded in used and used[folded] != key:
+            raise ValueError(f"Table alias '{alias}' is used more than once.")
+        used[folded] = key
+        cleaned[key] = alias
+    return cleaned
+
+
+def rewrite_expression_aliases(sql_text, alias_map):
+    text = str(sql_text or "")
+    for old_alias, new_alias in (alias_map or {}).items():
+        if not old_alias or not new_alias or old_alias.casefold() == new_alias.casefold():
+            continue
+        text = re.sub(
+            rf"`{re.escape(old_alias)}`(?=\s*\.)",
+            quote_ident(new_alias),
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf"(?<![A-Za-z0-9_]){re.escape(old_alias)}(?=\s*\.)",
+            quote_ident(new_alias),
+            text,
+            flags=re.IGNORECASE,
+        )
+    return text
+
+
+def rewrite_imported_query_aliases(raw_sql, alias_map):
+    if not alias_map:
+        return raw_sql
+
+    try:
+        tree = sqlglot.parse_one(raw_sql, read="databricks")
+    except Exception as exc:
+        raise ValueError(f"Could not rewrite imported aliases: {exc}") from exc
+
+    folded = {
+        str(old).casefold(): normalise_sql_alias(new)
+        for old, new in alias_map.items()
+        if old and normalise_sql_alias(new)
+    }
+
+    for table in tree.find_all(exp.Table):
+        current_alias = table.alias
+        if current_alias and current_alias.casefold() in folded:
+            table.set(
+                "alias",
+                exp.TableAlias(
+                    this=exp.Identifier(this=folded[current_alias.casefold()])
+                ),
+            )
+
+    for column in tree.find_all(exp.Column):
+        qualifier = column.table
+        if qualifier and qualifier.casefold() in folded:
+            column.set(
+                "table",
+                exp.Identifier(this=folded[qualifier.casefold()]),
+            )
+
+    return tree.sql(dialect="databricks")
+
+
 def match_local_table(conn, table_name, schema_name=None, catalog=None):
     if not table_name:
         return None
@@ -3967,10 +4050,27 @@ def create_imported_join_proposal(conn, candidates):
     return cursor.lastrowid, len(valid)
 
 
-def build_sql_from_imported_state(conn, fields, imported_state):
-    sources = imported_state.get("sources") or []
-    modifiers = imported_state.get("modifiers") or {}
-    warnings = list(imported_state.get("warnings") or [])
+def build_sql_from_imported_state(conn, fields, imported_state, table_aliases=None):
+    table_aliases = validate_table_aliases(table_aliases or {})
+    source_alias_rewrites = {}
+    for source in imported_state.get("sources") or []:
+        table_id = source.get("table_id")
+        old_alias = source.get("alias")
+        new_alias = table_aliases.get(str(table_id)) if table_id is not None else None
+        if old_alias and new_alias and old_alias.casefold() != new_alias.casefold():
+            source_alias_rewrites[str(old_alias)] = new_alias
+
+    effective_state = imported_state
+    if source_alias_rewrites and imported_state.get("raw_sql"):
+        rewritten_sql = rewrite_imported_query_aliases(
+            imported_state["raw_sql"],
+            source_alias_rewrites,
+        )
+        effective_state = parse_databricks_query_to_builder(conn, rewritten_sql)["state"]
+
+    sources = effective_state.get("sources") or []
+    modifiers = effective_state.get("modifiers") or {}
+    warnings = list(effective_state.get("warnings") or [])
 
     if not sources:
         raise ValueError("Imported query state has no FROM source.")
@@ -3980,7 +4080,11 @@ def build_sql_from_imported_state(conn, fields, imported_state):
     for source in sources:
         table_id = source.get("table_id")
         if table_id:
-            aliases[int(table_id)] = source.get("alias") or source.get("table_name")
+            aliases[int(table_id)] = (
+                table_aliases.get(str(table_id))
+                or source.get("alias")
+                or source.get("table_name")
+            )
             source_table_ids.append(int(table_id))
 
     selected_table_ids = []
@@ -3999,10 +4103,14 @@ def build_sql_from_imported_state(conn, fields, imported_state):
     for table_id in selected_table_ids:
         if table_id in aliases:
             continue
-        while f"qb{next_alias}" in used_aliases:
+        requested = table_aliases.get(str(table_id))
+        if requested:
+            alias = requested
+        else:
+            while f"qb{next_alias}" in used_aliases:
+                next_alias += 1
+            alias = f"qb{next_alias}"
             next_alias += 1
-        alias = f"qb{next_alias}"
-        next_alias += 1
         aliases[table_id] = alias
         used_aliases.add(alias)
 
@@ -4011,7 +4119,9 @@ def build_sql_from_imported_state(conn, fields, imported_state):
         if field.get("kind") == "expression":
             sql_text = (field.get("sql") or "").strip()
             if sql_text:
-                selected_parts.append(sql_text)
+                selected_parts.append(
+                    rewrite_expression_aliases(sql_text, source_alias_rewrites)
+                )
             continue
 
         table_id = int(field["table_id"])
@@ -4046,11 +4156,11 @@ def build_sql_from_imported_state(conn, fields, imported_state):
 
     base = sources[0]
     sql_lines = []
-    prefix = imported_state.get("with_sql")
+    prefix = effective_state.get("with_sql")
     if prefix:
         sql_lines.append(prefix)
 
-    select_head = "SELECT DISTINCT" if imported_state.get("distinct") else "SELECT"
+    select_head = "SELECT DISTINCT" if effective_state.get("distinct") else "SELECT"
     sql_lines.extend(
         [
             select_head,
@@ -4243,12 +4353,13 @@ def api_build_sql():
     body = request.get_json(silent=True) or {}
     fields = body.get("fields", [])
     imported_state = body.get("imported_state")
+    table_aliases = body.get("table_aliases") or {}
 
     conn = db()
     if imported_state:
         try:
             sql_text, warnings = build_sql_from_imported_state(
-                conn, fields, imported_state
+                conn, fields, imported_state, table_aliases
             )
             conn.close()
             return jsonify({
@@ -4296,16 +4407,44 @@ def api_build_sql():
             table_rows[row["id"]] = row
             table_order.append(row["id"])
 
-    aliases = {table_id: f"t{i + 1}" for i, table_id in enumerate(table_order)}
-    select_parts = [
-        f"{aliases[row['id']]}.{quote_ident(row['column_name'])}" for row in resolved
-    ]
+    try:
+        requested_aliases = validate_table_aliases(table_aliases)
+    except ValueError as exc:
+        conn.close()
+        return jsonify({"sql": f"-- {exc}", "joins": [], "error": str(exc)}), 400
+
+    aliases = {}
+    used_aliases = set()
+    for i, table_id in enumerate(table_order):
+        alias = requested_aliases.get(str(table_id)) or f"t{i + 1}"
+        if alias.casefold() in used_aliases:
+            conn.close()
+            return jsonify({
+                "sql": f"-- Table alias '{alias}' is used more than once.",
+                "joins": [],
+                "error": f"Table alias '{alias}' is used more than once.",
+            }), 400
+        used_aliases.add(alias.casefold())
+        aliases[table_id] = alias
+
+    output_aliases = {
+        (int(field.get("table_id")), str(field.get("column_name"))): normalise_sql_alias(field.get("output_alias"))
+        for field in fields
+        if field.get("table_id") is not None and field.get("column_name")
+    }
+    select_parts = []
+    for row in resolved:
+        part = f"{quote_ident(aliases[row['id']])}.{quote_ident(row['column_name'])}"
+        output_alias = output_aliases.get((int(row["id"]), str(row["column_name"])))
+        if output_alias:
+            part += f" AS {quote_ident(output_alias)}"
+        select_parts.append(part)
 
     base_id = table_order[0]
     sql_lines = [
         "SELECT",
         "    " + ",\n    ".join(select_parts),
-        f"FROM {qualified_name(table_rows[base_id])} AS {aliases[base_id]}",
+        f"FROM {qualified_name(table_rows[base_id])} AS {quote_ident(aliases[base_id])}",
     ]
 
     joined = {base_id}
@@ -4341,11 +4480,11 @@ def api_build_sql():
                 existing_col = rel["left_name"]
 
             sql_lines.append(
-                f"INNER JOIN {qualified_name(table_rows[table_id])} AS {aliases[table_id]}"
+                f"INNER JOIN {qualified_name(table_rows[table_id])} AS {quote_ident(aliases[table_id])}"
             )
             sql_lines.append(
-                f"    ON {aliases[table_id]}.{quote_ident(new_col)} = "
-                f"{aliases[existing_table_id]}.{quote_ident(existing_col)}"
+                f"    ON {quote_ident(aliases[table_id])}.{quote_ident(new_col)} = "
+                f"{quote_ident(aliases[existing_table_id])}.{quote_ident(existing_col)}"
             )
             join_notes.append(
                 {
@@ -4358,7 +4497,7 @@ def api_build_sql():
             )
         else:
             sql_lines.append(
-                f"CROSS JOIN {qualified_name(table_rows[table_id])} AS {aliases[table_id]}"
+                f"CROSS JOIN {qualified_name(table_rows[table_id])} AS {quote_ident(aliases[table_id])}"
             )
             join_notes.append(
                 {
