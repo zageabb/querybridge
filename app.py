@@ -150,6 +150,12 @@ def init_db():
             created_at TEXT NOT NULL,
             reviewed_at TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS qb_relationship_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            auto_inference_enabled INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     relationship_columns = {
@@ -163,6 +169,15 @@ def init_db():
         INSERT OR IGNORE INTO qb_llm_settings
         (id, provider, base_url, model, temperature, timeout_seconds, updated_at)
         VALUES (1, 'ollama', 'http://localhost:11434', '', 0.2, 120, ?)
+        """,
+        (now_iso(),),
+    )
+
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO qb_relationship_settings
+        (id, auto_inference_enabled, updated_at)
+        VALUES (1, 0, ?)
         """,
         (now_iso(),),
     )
@@ -345,8 +360,19 @@ def extract_json_object(text: str):
     return None
 
 
-def infer_relationships(conn):
+def auto_relationship_inference_enabled(conn):
+    row = conn.execute(
+        "SELECT auto_inference_enabled FROM qb_relationship_settings WHERE id = 1"
+    ).fetchone()
+    return bool(row and row["auto_inference_enabled"])
+
+
+def infer_relationships(conn, force=False):
+    if not force and not auto_relationship_inference_enabled(conn):
+        return 0
+
     conn.execute("DELETE FROM qb_relationships WHERE source = 'auto'")
+    inserted = 0
     columns = conn.execute(
         """
         SELECT c.id column_id, c.table_id, lower(c.column_name) column_key,
@@ -380,7 +406,7 @@ def infer_relationships(conn):
                     lc, rc = left, right
                 else:
                     lc, rc = right, left
-                conn.execute(
+                cursor = conn.execute(
                     """
                     INSERT OR IGNORE INTO qb_relationships
                     (left_table_id, left_column_id, right_table_id, right_column_id, confidence, source)
@@ -388,6 +414,9 @@ def infer_relationships(conn):
                     """,
                     (lc["table_id"], lc["column_id"], rc["table_id"], rc["column_id"], confidence),
                 )
+                inserted += cursor.rowcount
+
+    return inserted
 
 
 
@@ -3115,6 +3144,66 @@ def reject_schema_proposal(proposal_id):
     return redirect(url_for("ai_skills") + "#proposals")
 
 
+
+@app.post("/relationships/clear-auto")
+def clear_auto_relationships():
+    conn = db()
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) n FROM qb_relationships WHERE source = 'auto'"
+        ).fetchone()["n"]
+        conn.execute("DELETE FROM qb_relationships WHERE source = 'auto'")
+        conn.commit()
+        flash(
+            f"Cleared {count} auto-generated relationship(s). "
+            "AI, approved, imported and manual links were preserved.",
+            "success",
+        )
+    except Exception as exc:
+        conn.rollback()
+        flash(f"Could not clear auto-generated links: {exc}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("knowledge") + "#relationships")
+
+
+@app.post("/relationships/auto-inference")
+def set_auto_relationship_inference():
+    enabled = (request.form.get("enabled") or "0") == "1"
+    conn = db()
+    try:
+        conn.execute(
+            """
+            UPDATE qb_relationship_settings
+            SET auto_inference_enabled = ?, updated_at = ?
+            WHERE id = 1
+            """,
+            (1 if enabled else 0, now_iso()),
+        )
+        created = 0
+        if enabled:
+            created = infer_relationships(conn, force=True)
+        conn.commit()
+        if enabled:
+            flash(
+                f"Automatic heuristic relationship inference enabled. "
+                f"{created} auto relationship(s) generated from the current schema.",
+                "success",
+            )
+        else:
+            flash(
+                "Automatic heuristic relationship inference disabled. "
+                "Existing auto links were left in place until you clear them.",
+                "success",
+            )
+    except Exception as exc:
+        conn.rollback()
+        flash(f"Could not update automatic relationship inference: {exc}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("knowledge") + "#relationships")
+
+
 @app.route("/knowledge")
 def knowledge():
     conn = db()
@@ -3138,6 +3227,20 @@ def knowledge():
     ]
     table_count = conn.execute("SELECT COUNT(*) n FROM qb_tables").fetchone()["n"]
     column_count = conn.execute("SELECT COUNT(*) n FROM qb_columns").fetchone()["n"]
+
+    relationship_source_counts = {
+        row["source"]: row["n"]
+        for row in conn.execute(
+            """
+            SELECT source, COUNT(*) n
+            FROM qb_relationships
+            GROUP BY source
+            ORDER BY source
+            """
+        ).fetchall()
+    }
+    auto_link_count = int(relationship_source_counts.get("auto", 0))
+    auto_inference_enabled = auto_relationship_inference_enabled(conn)
 
     manifest_path = BASE_DIR / "knowledge" / "manifest.json"
     pack_info = None
@@ -3173,6 +3276,9 @@ def knowledge():
         table_count=table_count,
         column_count=column_count,
         pack_info=pack_info,
+        relationship_source_counts=relationship_source_counts,
+        auto_link_count=auto_link_count,
+        auto_inference_enabled=auto_inference_enabled,
     )
 
 
