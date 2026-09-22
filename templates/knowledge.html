@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QueryBridge - Knowledge</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+    <div>
+        <div class="brand">QueryBridge</div>
+        <div class="subtitle">Schema & package knowledge</div>
+    </div>
+    <nav>
+        <a href="{{ url_for('index') }}">Metadata</a>
+        <a href="{{ url_for('builder') }}">Query Builder</a>
+        <a class="active" href="{{ url_for('knowledge') }}">Knowledge</a>
+        <a href="{{ url_for('schema_chat') }}">Schema Chat</a>
+        <a href="{{ url_for('llm_setup') }}">LLM Setup</a>
+    </nav>
+</header>
+
+<main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <section class="hero">
+        <div>
+            <h1>Schema Knowledge</h1>
+            <p>Add package information, naming conventions, business rules, known keys, or anything else that helps explain how the captured tables relate.</p>
+        </div>
+        <div class="stats">
+            <div><strong>{{ table_count }}</strong><span>tables</span></div>
+            <div><strong>{{ column_count }}</strong><span>fields</span></div>
+            <div><strong>{{ items|length }}</strong><span>notes</span></div>
+        </div>
+    </section>
+
+    <div class="knowledge-grid">
+        <section class="panel">
+            <h2>Add knowledge</h2>
+            <form method="post" action="{{ url_for('add_knowledge') }}">
+                <div class="two-col">
+                    <label>Title
+                        <input name="title" placeholder="e.g. PO ↔ Supplier relationship" required>
+                    </label>
+                    <label>Category
+                        <select name="category">
+                            <option value="relationship">Relationship hint</option>
+                            <option value="package">Package / source system</option>
+                            <option value="business_rule">Business rule</option>
+                            <option value="naming">Naming convention</option>
+                            <option value="general">General</option>
+                        </select>
+                    </label>
+                </div>
+                <label>Information
+                    <textarea name="content" rows="7" placeholder="Example: EKPO.EBELN joins to EKKO.EBELN. Supplier numbers are stored in LIFNR and may contain leading zeros." required></textarea>
+                </label>
+                <button class="primary" type="submit">Add knowledge</button>
+            </form>
+        </section>
+
+        <section class="panel ai-panel">
+            <h2>AI relationship discovery</h2>
+            <p>Ask the configured LLM to analyse all captured tables and fields together with the knowledge below. Every suggested field is checked against the local schema before the link is stored.</p>
+            <form method="post" action="{{ url_for('guess_relationships') }}" onsubmit="return confirm('Run the LLM across the current schema and knowledge to suggest table links?')">
+                <button class="primary" type="submit" {% if not table_count or not column_count %}disabled{% endif %}>AI Guess Links</button>
+                <a class="secondary button-link" href="{{ url_for('llm_setup') }}">LLM Setup</a>
+            </form>
+            <p class="hint">LLM-created relationships are marked <strong>llm</strong> and include the model's reason. They can then be used by the Query Builder.</p>
+        </section>
+    </div>
+
+    <section class="section-title compact">
+        <div>
+            <h1>Knowledge library</h1>
+            <p>These entries are included in named schema snapshots and exported with the schema.</p>
+        </div>
+    </section>
+
+    {% if items %}
+    <div class="knowledge-list">
+        {% for item in items %}
+        <article class="knowledge-card">
+            <div class="knowledge-card-head">
+                <div>
+                    <span class="knowledge-category">{{ item.category }}</span>
+                    <h3>{{ item.title }}</h3>
+                </div>
+                <form method="post" action="{{ url_for('delete_knowledge', item_id=item.id) }}" onsubmit="return confirm('Delete this knowledge item?')">
+                    <button class="danger small" type="submit">Delete</button>
+                </form>
+            </div>
+            <div class="knowledge-content">{{ item.content }}</div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-library">No additional schema knowledge has been added yet.</div>
+    {% endif %}
+
+    <section class="section-title compact relationship-heading" id="relationships">
+        <div>
+            <h1>Known & inferred links</h1>
+            <p>These are the links the Query Builder can currently use automatically.</p>
+        </div>
+        <span class="status good">{{ relationships|length }} links</span>
+    </section>
+
+    {% if relationships %}
+    <div class="relationship-table-wrap">
+        <table class="relationship-table">
+            <thead>
+                <tr>
+                    <th>Left</th>
+                    <th>Right</th>
+                    <th>Source</th>
+                    <th>Confidence</th>
+                    <th>Reason / note</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for rel in relationships %}
+                <tr>
+                    <td><code>{{ rel.left_table }}.{{ rel.left_column }}</code></td>
+                    <td><code>{{ rel.right_table }}.{{ rel.right_column }}</code></td>
+                    <td><span class="source-badge {{ rel.source }}">{{ rel.source }}</span></td>
+                    <td>{{ "%.0f"|format(rel.confidence * 100) }}%</td>
+                    <td>{{ rel.notes or '' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-library">No table relationships have been inferred yet.</div>
+    {% endif %}
+</main>
+</body>
+</html>
