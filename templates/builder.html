@@ -63,8 +63,33 @@
                     <h1>Query canvas</h1>
                     <p>Adding fields from another table automatically adds a detected JOIN when possible.</p>
                 </div>
-                <button id="clear-fields" class="secondary">Clear</button>
+                <div class="canvas-actions">
+                    <button id="import-sql-toggle" class="secondary" type="button">Import SQL</button>
+                    <button id="clear-fields" class="secondary" type="button">Clear</button>
+                </div>
             </div>
+
+            <section id="import-sql-panel" class="import-sql-panel" hidden>
+                <div class="panel-head">
+                    <div>
+                        <h3>Import Databricks SELECT</h3>
+                        <p>Paste an existing query. QueryBridge will map what it can to the locally stored schema and preserve the rest.</p>
+                    </div>
+                    <button id="close-import-sql" class="secondary small" type="button">Close</button>
+                </div>
+                <textarea id="import-sql-text" rows="10" placeholder="SELECT ... FROM ... JOIN ..."></textarea>
+                <div class="form-actions">
+                    <button id="parse-import-sql" class="primary" type="button">Load into builder</button>
+                    <button id="clear-import-sql" class="secondary" type="button">Clear pasted SQL</button>
+                </div>
+                <div id="import-sql-status" class="import-sql-status muted"></div>
+                <div id="import-link-proposal-wrap" class="import-link-proposal-wrap" hidden>
+                    <button id="propose-import-links" class="secondary small" type="button">Create relationship proposal from imported JOINs</button>
+                    <span id="import-link-proposal-status" class="hint"></span>
+                </div>
+            </section>
+
+            <div id="imported-query-summary" class="imported-query-summary" hidden></div>
 
             <div id="drop-zone" class="drop-zone">
                 <div id="empty-drop">Drop fields here</div>
@@ -129,7 +154,9 @@ function showCopyState(button, ok) {
     setTimeout(function () { button.innerText = old; }, 1400);
 }
 
-const selected = [];
+let selected = [];
+let importedState = null;
+let importedRelationshipCandidates = [];
 const builderGrid = document.querySelector(".builder-grid");
 const leftSplitter = document.getElementById("splitter-left");
 const rightSplitter = document.getElementById("splitter-right");
@@ -223,6 +250,13 @@ const selectedFields = document.getElementById("selected-fields");
 const emptyDrop = document.getElementById("empty-drop");
 const sqlBox = document.getElementById("generated-sql");
 const joinStatus = document.getElementById("join-status");
+const importToggle = document.getElementById("import-sql-toggle");
+const importPanel = document.getElementById("import-sql-panel");
+const importText = document.getElementById("import-sql-text");
+const importStatus = document.getElementById("import-sql-status");
+const importedSummary = document.getElementById("imported-query-summary");
+const importLinkProposalWrap = document.getElementById("import-link-proposal-wrap");
+const importLinkProposalStatus = document.getElementById("import-link-proposal-status");
 
 document.querySelectorAll(".field").forEach(function (field) {
     field.addEventListener("dragstart", function (event) {
@@ -260,11 +294,17 @@ if (dropZone) {
 }
 
 function addField(item) {
+    const normalised = Object.assign({kind: "field"}, item);
     const exists = selected.some(function (x) {
-        return x.table_id === item.table_id && x.column_name === item.column_name;
+        if (normalised.kind === "expression") {
+            return x.kind === "expression" && x.sql === normalised.sql;
+        }
+        return x.kind !== "expression"
+            && x.table_id === normalised.table_id
+            && x.column_name === normalised.column_name;
     });
     if (!exists) {
-        selected.push(item);
+        selected.push(normalised);
         renderFields();
         refreshSql();
     }
@@ -284,10 +324,29 @@ function renderFields() {
     selected.forEach(function (item, index) {
         const pill = document.createElement("button");
         pill.type = "button";
-        pill.className = "selected-field";
-        pill.innerHTML = "<span>" + escapeHtml(item.column_name) + "</span><b>×</b>";
+        pill.className = "selected-field" + (item.kind === "expression" ? " expression-field" : "");
+        const label = item.kind === "expression"
+            ? (item.label || item.sql || "Expression")
+            : item.column_name + (item.output_alias ? " → " + item.output_alias : "");
+        pill.innerHTML = "<span>" + escapeHtml(label) + "</span><b>×</b>";
+        pill.title = item.kind === "expression" ? (item.sql || label) : label;
         pill.addEventListener("click", function () { removeField(index); });
         selectedFields.appendChild(pill);
+    });
+
+    syncFieldHighlights();
+}
+
+function syncFieldHighlights() {
+    document.querySelectorAll(".field").forEach(function (field) {
+        const tableId = Number(field.dataset.tableId);
+        const column = field.dataset.column;
+        const active = selected.some(function (item) {
+            return item.kind !== "expression"
+                && item.table_id === tableId
+                && item.column_name === column;
+        });
+        field.classList.toggle("in-query", active);
     });
 }
 
@@ -295,10 +354,22 @@ async function refreshSql() {
     const response = await fetch("/api/build-sql", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({fields: selected})
+        body: JSON.stringify({fields: selected, imported_state: importedState})
     });
     const data = await response.json();
-    sqlBox.textContent = data.sql;
+    sqlBox.textContent = data.sql || "-- No SQL generated.";
+
+    if (data.imported) {
+        const warnings = data.warnings || [];
+        if (warnings.length) {
+            joinStatus.textContent = warnings.join(" ");
+            joinStatus.className = "warning-text";
+        } else {
+            joinStatus.textContent = "Imported joins and clauses preserved. Added fields use stored relationships where needed.";
+            joinStatus.className = "success-text";
+        }
+        return;
+    }
 
     if (!data.joins || !data.joins.length) {
         joinStatus.textContent = "Add fields from more than one table to see joins.";
@@ -319,7 +390,15 @@ async function refreshSql() {
 const clearButton = document.getElementById("clear-fields");
 if (clearButton) {
     clearButton.addEventListener("click", function () {
-        selected.splice(0, selected.length);
+        selected = [];
+        importedState = null;
+        importedRelationshipCandidates = [];
+        if (importedSummary) {
+            importedSummary.hidden = true;
+            importedSummary.innerHTML = "";
+        }
+        if (importLinkProposalWrap) importLinkProposalWrap.hidden = true;
+        if (importLinkProposalStatus) importLinkProposalStatus.textContent = "";
         renderFields();
         refreshSql();
     });
@@ -341,6 +420,135 @@ if (collapseAllTables) {
         document.querySelectorAll(".schema-table").forEach(function (table) {
             table.open = false;
         });
+    });
+}
+
+function renderImportedSummary(data) {
+    if (!importedSummary) return;
+    const state = data.state || {};
+    const matchedSources = (state.sources || []).filter(function (x) { return x.matched; }).length;
+    const totalSources = (state.sources || []).length;
+    const mappedFields = (data.fields || []).filter(function (x) { return x.kind === "field"; }).length;
+    const expressions = (data.fields || []).filter(function (x) { return x.kind === "expression"; }).length;
+    const warnings = data.warnings || [];
+
+    let html = "<div class='import-summary-head'><strong>Imported query loaded</strong>"
+        + "<span>" + matchedSources + "/" + totalSources + " tables matched · "
+        + mappedFields + " fields mapped"
+        + (expressions ? " · " + expressions + " expression(s) preserved" : "")
+        + "</span></div>";
+
+    if (warnings.length) {
+        html += "<ul>" + warnings.map(function (warning) {
+            return "<li>" + escapeHtml(warning) + "</li>";
+        }).join("") + "</ul>";
+    }
+
+    importedSummary.innerHTML = html;
+    importedSummary.hidden = false;
+}
+
+if (importToggle) {
+    importToggle.addEventListener("click", function () {
+        importPanel.hidden = !importPanel.hidden;
+        if (!importPanel.hidden) importText.focus();
+    });
+}
+
+const closeImportButton = document.getElementById("close-import-sql");
+if (closeImportButton) {
+    closeImportButton.addEventListener("click", function () {
+        importPanel.hidden = true;
+    });
+}
+
+const clearImportButton = document.getElementById("clear-import-sql");
+if (clearImportButton) {
+    clearImportButton.addEventListener("click", function () {
+        importText.value = "";
+        importStatus.textContent = "";
+    });
+}
+
+const parseImportButton = document.getElementById("parse-import-sql");
+if (parseImportButton) {
+    parseImportButton.addEventListener("click", async function () {
+        const sql = importText.value.trim();
+        if (!sql) {
+            importStatus.textContent = "Paste a SELECT statement first.";
+            importStatus.className = "import-sql-status warning-text";
+            return;
+        }
+
+        parseImportButton.disabled = true;
+        parseImportButton.textContent = "Parsing...";
+        importStatus.textContent = "Parsing Databricks SQL against the local schema...";
+        importStatus.className = "import-sql-status muted";
+
+        try {
+            const response = await fetch("/api/import-sql", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({sql: sql})
+            });
+            const data = await response.json();
+            if (!data.ok) throw new Error(data.error || "SQL import failed");
+
+            importedState = data.state;
+            importedRelationshipCandidates = data.relationship_candidates || [];
+            selected = data.fields || [];
+            renderFields();
+            renderImportedSummary(data);
+            refreshSql();
+
+            (importedState.sources || []).forEach(function (source) {
+                if (!source.table_id) return;
+                const field = document.querySelector('.field[data-table-id="' + source.table_id + '"]');
+                if (field) {
+                    const details = field.closest(".schema-table");
+                    if (details) details.open = true;
+                }
+            });
+
+            importStatus.textContent = "Imported successfully. You can now add or remove fields.";
+            importStatus.className = "import-sql-status success-text";
+
+            importLinkProposalWrap.hidden = importedRelationshipCandidates.length === 0;
+            importLinkProposalStatus.textContent = importedRelationshipCandidates.length
+                ? importedRelationshipCandidates.length + " new JOIN relationship(s) observed."
+                : "";
+        } catch (error) {
+            importStatus.textContent = error.message;
+            importStatus.className = "import-sql-status warning-text";
+        } finally {
+            parseImportButton.disabled = false;
+            parseImportButton.textContent = "Load into builder";
+        }
+    });
+}
+
+const proposeImportLinksButton = document.getElementById("propose-import-links");
+if (proposeImportLinksButton) {
+    proposeImportLinksButton.addEventListener("click", async function () {
+        if (!importedRelationshipCandidates.length) return;
+        proposeImportLinksButton.disabled = true;
+        importLinkProposalStatus.textContent = "Creating review proposal...";
+        try {
+            const response = await fetch("/api/import-sql/relationship-proposal", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({candidates: importedRelationshipCandidates})
+            });
+            const data = await response.json();
+            if (!data.ok) throw new Error(data.error || "Could not create proposal");
+            importLinkProposalStatus.innerHTML = "Created proposal #" + data.proposal_id
+                + " with " + data.count + " relationship(s). Review it under <a href='{{ url_for('ai_skills') }}#proposals'>AI Skills</a>.";
+            importedRelationshipCandidates = [];
+            proposeImportLinksButton.disabled = true;
+        } catch (error) {
+            importLinkProposalStatus.textContent = error.message;
+            proposeImportLinksButton.disabled = false;
+        }
     });
 }
 
