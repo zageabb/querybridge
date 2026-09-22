@@ -49,5 +49,61 @@ jobs:
               pass
           skill = conn.execute("SELECT 1 FROM qb_ai_skills WHERE skill_key='local-schema-sql-analysis' AND enabled=1").fetchone()
           assert skill is not None
+
+          conn.execute("DELETE FROM qb_relationships")
+          conn.execute("DELETE FROM qb_columns")
+          conn.execute("DELETE FROM qb_tables")
+          conn.execute(
+              "INSERT INTO qb_tables(catalog,schema_name,table_name,table_type,is_temporary,raw_source,captured_at) VALUES (?,?,?,?,?,?,?)",
+              ("maincat","scm","projects","TABLE",0,"test",app.now_iso()),
+          )
+          project_id = conn.execute("SELECT id FROM qb_tables WHERE table_name='projects'").fetchone()["id"]
+          conn.execute(
+              "INSERT INTO qb_tables(catalog,schema_name,table_name,table_type,is_temporary,raw_source,captured_at) VALUES (?,?,?,?,?,?,?)",
+              ("maincat","scm","orders","TABLE",0,"test",app.now_iso()),
+          )
+          order_id = conn.execute("SELECT id FROM qb_tables WHERE table_name='orders'").fetchone()["id"]
+          conn.execute(
+              "INSERT INTO qb_columns(table_id,ordinal_position,column_name,data_type,nullable,comment,raw_json) VALUES (?,?,?,?,?,?,?)",
+              (project_id,1,"project_id","STRING",0,None,None),
+          )
+          conn.execute(
+              "INSERT INTO qb_columns(table_id,ordinal_position,column_name,data_type,nullable,comment,raw_json) VALUES (?,?,?,?,?,?,?)",
+              (project_id,2,"project_name","STRING",1,None,None),
+          )
+          conn.execute(
+              "INSERT INTO qb_columns(table_id,ordinal_position,column_name,data_type,nullable,comment,raw_json) VALUES (?,?,?,?,?,?,?)",
+              (order_id,1,"project_id","STRING",0,None,None),
+          )
+          conn.execute(
+              "INSERT INTO qb_columns(table_id,ordinal_position,column_name,data_type,nullable,comment,raw_json) VALUES (?,?,?,?,?,?,?)",
+              (order_id,2,"po_number","STRING",1,None,None),
+          )
+          conn.commit()
+
+          imported = app.parse_databricks_query_to_builder(
+              conn,
+              """SELECT p.project_name, o.po_number
+                 FROM maincat.scm.projects p
+                 INNER JOIN maincat.scm.orders o
+                   ON p.project_id = o.project_id
+                 WHERE o.po_number IS NOT NULL
+                 ORDER BY p.project_name"""
+          )
+          assert len(imported["fields"]) == 2
+          assert all(item["kind"] == "field" for item in imported["fields"])
+          assert imported["state"]["modifiers"]["where"].upper().startswith("WHERE")
+          assert imported["state"]["modifiers"]["order"].upper().startswith("ORDER BY")
+          assert len(imported["relationship_candidates"]) == 1
+
+          rebuilt, warnings = app.build_sql_from_imported_state(
+              conn,
+              imported["fields"],
+              imported["state"],
+          )
+          assert "INNER JOIN" in rebuilt.upper()
+          assert "WHERE" in rebuilt.upper()
+          assert "ORDER BY" in rebuilt.upper()
+          assert "PROJECT_NAME" in rebuilt.upper()
           conn.close()
           PY
