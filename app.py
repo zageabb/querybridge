@@ -6,6 +6,8 @@ import json
 import re
 import sqlite3
 import requests
+import markdown as markdown_lib
+from markupsafe import Markup, escape
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -122,6 +124,29 @@ def init_db():
             content TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS qb_ai_skills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_key TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            instructions TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            builtin INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_schema_proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            summary TEXT,
+            skill_key TEXT,
+            model TEXT,
+            operations_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'proposed',
+            created_at TEXT NOT NULL,
+            reviewed_at TEXT
+        );
         """
     )
     relationship_columns = {
@@ -138,6 +163,50 @@ def init_db():
         """,
         (now_iso(),),
     )
+
+    builtin_skills = [
+        (
+            "relationship-analysis",
+            "Relationship analysis",
+            "Find plausible joins between captured tables using schema metadata and knowledge.",
+            "Propose only equality relationships between real captured fields. Prefer explicit business keys, documented identifiers and knowledge-backed rules. Include confidence and a concise reason. Do not apply changes directly.",
+        ),
+        (
+            "schema-curator",
+            "Schema curator",
+            "Propose reviewable structural improvements to the local QueryBridge schema model.",
+            "You may propose add_table, remove_table, rename_table, add_field, remove_field, rename_field, change_field_type and set_field_nullable operations. Never invent a destructive change without explaining why. Treat the captured schema as metadata, not the live Databricks database.",
+        ),
+        (
+            "field-type-review",
+            "Field type review",
+            "Review field names, comments and business knowledge for likely type or nullability corrections.",
+            "Prefer conservative type corrections. Only propose change_field_type or set_field_nullable when evidence is strong. Preserve the original field unless the requested change materially improves the local model.",
+        ),
+        (
+            "knowledge-grounded-schema",
+            "Knowledge-grounded schema reasoning",
+            "Use Markdown knowledge, package notes and source-authority rules to improve schema understanding.",
+            "Ground every proposal in the supplied schema or knowledge. If evidence is insufficient, return no operation rather than guessing. Relationship hints in knowledge may justify add_relationship proposals.",
+        ),
+    ]
+    for skill_key, name, description, instructions in builtin_skills:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO qb_ai_skills
+            (skill_key, name, description, instructions, enabled, builtin, updated_at)
+            VALUES (?, ?, ?, ?, 1, 1, ?)
+            """,
+            (skill_key, name, description, instructions, now_iso()),
+        )
+        conn.execute(
+            """
+            UPDATE qb_ai_skills
+            SET name = ?, description = ?, instructions = ?
+            WHERE skill_key = ? AND builtin = 1
+            """,
+            (name, description, instructions, skill_key),
+        )
 
     conn.commit()
     conn.close()
