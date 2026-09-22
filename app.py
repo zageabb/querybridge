@@ -5,6 +5,7 @@ import io
 import json
 import re
 import sqlite3
+import requests
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -95,8 +96,49 @@ def init_db():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS qb_llm_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            provider TEXT NOT NULL DEFAULT 'ollama',
+            base_url TEXT NOT NULL DEFAULT 'http://localhost:11434',
+            model TEXT NOT NULL DEFAULT '',
+            temperature REAL NOT NULL DEFAULT 0.2,
+            timeout_seconds INTEGER NOT NULL DEFAULT 120,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_knowledge (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'general',
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         """
     )
+    relationship_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(qb_relationships)").fetchall()
+    }
+    if "notes" not in relationship_columns:
+        conn.execute("ALTER TABLE qb_relationships ADD COLUMN notes TEXT")
+
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO qb_llm_settings
+        (id, provider, base_url, model, temperature, timeout_seconds, updated_at)
+        VALUES (1, 'ollama', 'http://localhost:11434', '', 0.2, 120, ?)
+        """,
+        (now_iso(),),
+    )
+
     conn.commit()
     conn.close()
 
@@ -271,6 +313,346 @@ def infer_relationships(conn):
 
 
 
+
+def get_llm_settings(conn):
+    row = conn.execute("SELECT * FROM qb_llm_settings WHERE id = 1").fetchone()
+    if not row:
+        return {
+            "provider": "ollama",
+            "base_url": "http://localhost:11434",
+            "model": "",
+            "temperature": 0.2,
+            "timeout_seconds": 120,
+        }
+    return dict(row)
+
+
+def normalize_base_url(value):
+    return (value or "").strip().rstrip("/")
+
+
+def ollama_models(base_url, timeout_seconds=15):
+    url = normalize_base_url(base_url) + "/api/tags"
+    response = requests.get(url, timeout=timeout_seconds)
+    response.raise_for_status()
+    payload = response.json()
+    return [
+        item.get("name")
+        for item in payload.get("models", [])
+        if isinstance(item, dict) and item.get("name")
+    ]
+
+
+def call_llm(conn, messages, json_mode=False):
+    settings = get_llm_settings(conn)
+    provider = settings.get("provider") or "ollama"
+    if provider != "ollama":
+        raise ValueError(f"Unsupported LLM provider: {provider}")
+
+    base_url = normalize_base_url(settings.get("base_url"))
+    model = (settings.get("model") or "").strip()
+
+    if not base_url:
+        raise ValueError("Configure an Ollama base URL in LLM Setup.")
+    if not model:
+        raise ValueError("Configure an Ollama model in LLM Setup.")
+
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {
+            "temperature": float(settings.get("temperature") or 0.2)
+        },
+    }
+    if json_mode:
+        body["format"] = "json"
+
+    try:
+        response = requests.post(
+            base_url + "/api/chat",
+            json=body,
+            timeout=int(settings.get("timeout_seconds") or 120),
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise ValueError(f"Could not reach the configured Ollama server: {exc}") from exc
+
+    payload = response.json()
+    content = ((payload.get("message") or {}).get("content") or "").strip()
+    if not content:
+        raise ValueError("The LLM returned an empty response.")
+    return content
+
+
+def knowledge_rows(conn):
+    return conn.execute(
+        """
+        SELECT id, title, category, content, created_at, updated_at
+        FROM qb_knowledge
+        ORDER BY category, title
+        """
+    ).fetchall()
+
+
+def schema_context_text(conn, include_relationships=True, max_chars=60000):
+    tables = conn.execute(
+        """
+        SELECT * FROM qb_tables
+        ORDER BY COALESCE(catalog,''), COALESCE(schema_name,''), table_name
+        """
+    ).fetchall()
+
+    lines = ["QUERYBRIDGE WORKING SCHEMA"]
+    for table in tables:
+        lines.append("")
+        lines.append(f"TABLE {qualified_name(table)}")
+        columns = conn.execute(
+            """
+            SELECT column_name, data_type, nullable, comment
+            FROM qb_columns
+            WHERE table_id = ?
+            ORDER BY ordinal_position
+            """,
+            (table["id"],),
+        ).fetchall()
+        for col in columns:
+            detail = f"- {col['column_name']} : {col['data_type'] or 'UNKNOWN'}"
+            if col["nullable"] is not None:
+                detail += " NULLABLE" if col["nullable"] else " NOT NULL"
+            if col["comment"]:
+                detail += f" -- {col['comment']}"
+            lines.append(detail)
+
+    if include_relationships:
+        relationships = conn.execute(
+            """
+            SELECT
+                lt.catalog left_catalog, lt.schema_name left_schema, lt.table_name left_table,
+                lc.column_name left_column,
+                rt.catalog right_catalog, rt.schema_name right_schema, rt.table_name right_table,
+                rc.column_name right_column,
+                r.confidence, r.source, r.notes
+            FROM qb_relationships r
+            JOIN qb_tables lt ON lt.id = r.left_table_id
+            JOIN qb_columns lc ON lc.id = r.left_column_id
+            JOIN qb_tables rt ON rt.id = r.right_table_id
+            JOIN qb_columns rc ON rc.id = r.right_column_id
+            ORDER BY r.confidence DESC, r.id
+            """
+        ).fetchall()
+
+        if relationships:
+            lines.extend(["", "KNOWN / INFERRED RELATIONSHIPS"])
+            for rel in relationships:
+                left = ".".join(
+                    x for x in [rel["left_catalog"], rel["left_schema"], rel["left_table"], rel["left_column"]] if x
+                )
+                right = ".".join(
+                    x for x in [rel["right_catalog"], rel["right_schema"], rel["right_table"], rel["right_column"]] if x
+                )
+                note = f" -- {rel['notes']}" if rel["notes"] else ""
+                lines.append(
+                    f"- {left} = {right} "
+                    f"[source={rel['source']}, confidence={rel['confidence']:.2f}]{note}"
+                )
+
+    knowledge = knowledge_rows(conn)
+    if knowledge:
+        lines.extend(["", "SCHEMA / PACKAGE KNOWLEDGE"])
+        for item in knowledge:
+            lines.append(f"[{item['category']}] {item['title']}")
+            lines.append(item["content"])
+
+    text = "\n".join(lines)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n\n[Context truncated by QueryBridge]"
+    return text
+
+
+def extract_json_payload(text):
+    cleaned = (text or "").strip()
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+
+    start_obj = cleaned.find("{")
+    end_obj = cleaned.rfind("}")
+    if start_obj >= 0 and end_obj > start_obj:
+        try:
+            return json.loads(cleaned[start_obj : end_obj + 1])
+        except Exception:
+            pass
+
+    start_arr = cleaned.find("[")
+    end_arr = cleaned.rfind("]")
+    if start_arr >= 0 and end_arr > start_arr:
+        try:
+            return json.loads(cleaned[start_arr : end_arr + 1])
+        except Exception:
+            pass
+    return None
+
+
+def find_column(conn, table_name, column_name, schema_name=None, catalog=None):
+    sql = """
+        SELECT
+            c.id column_id, c.table_id, c.column_name,
+            t.catalog, t.schema_name, t.table_name
+        FROM qb_columns c
+        JOIN qb_tables t ON t.id = c.table_id
+        WHERE lower(t.table_name) = lower(?)
+          AND lower(c.column_name) = lower(?)
+    """
+    params = [table_name, column_name]
+
+    if schema_name:
+        sql += " AND lower(COALESCE(t.schema_name,'')) = lower(?)"
+        params.append(schema_name)
+    if catalog:
+        sql += " AND lower(COALESCE(t.catalog,'')) = lower(?)"
+        params.append(catalog)
+
+    sql += " ORDER BY t.id LIMIT 1"
+    return conn.execute(sql, params).fetchone()
+
+
+def save_llm_relationship(conn, left, right, confidence, reason):
+    if not left or not right or left["column_id"] == right["column_id"]:
+        return False
+
+    if left["column_id"] > right["column_id"]:
+        left, right = right, left
+
+    existing = conn.execute(
+        """
+        SELECT id, source, confidence
+        FROM qb_relationships
+        WHERE left_column_id = ? AND right_column_id = ?
+        """,
+        (left["column_id"], right["column_id"]),
+    ).fetchone()
+
+    confidence = max(0.0, min(1.0, float(confidence or 0.75)))
+
+    if existing:
+        if existing["source"] == "manual":
+            return False
+        conn.execute(
+            """
+            UPDATE qb_relationships
+            SET confidence = ?, source = 'llm', notes = ?
+            WHERE id = ?
+            """,
+            (max(confidence, float(existing["confidence"] or 0)), reason, existing["id"]),
+        )
+        return True
+
+    conn.execute(
+        """
+        INSERT INTO qb_relationships
+        (left_table_id, left_column_id, right_table_id, right_column_id, confidence, source, notes)
+        VALUES (?, ?, ?, ?, ?, 'llm', ?)
+        """,
+        (
+            left["table_id"],
+            left["column_id"],
+            right["table_id"],
+            right["column_id"],
+            confidence,
+            reason,
+        ),
+    )
+    return True
+
+
+def llm_guess_relationships(conn):
+    context = schema_context_text(conn, include_relationships=True, max_chars=50000)
+    system = """You are QueryBridge's schema relationship analyst.
+Infer plausible SQL JOIN relationships only from the supplied schema and knowledge.
+Do not invent tables or columns.
+Prefer keys, identifiers, business rules, package conventions, and existing field comments.
+Return JSON only in this shape:
+{
+  "relationships": [
+    {
+      "left_table": "table",
+      "left_schema": "optional schema or null",
+      "left_catalog": "optional catalog or null",
+      "left_column": "column",
+      "right_table": "table",
+      "right_schema": "optional schema or null",
+      "right_catalog": "optional catalog or null",
+      "right_column": "column",
+      "confidence": 0.0,
+      "reason": "short explanation"
+    }
+  ]
+}
+Only include relationships useful as equality joins. Confidence must be between 0 and 1."""
+    user = "Analyse this working schema and propose the most useful table links.\n\n" + context
+    raw = call_llm(
+        conn,
+        [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        json_mode=True,
+    )
+
+    payload = extract_json_payload(raw)
+    if isinstance(payload, list):
+        suggestions = payload
+    elif isinstance(payload, dict):
+        suggestions = payload.get("relationships", [])
+    else:
+        raise ValueError("The LLM response was not valid JSON.")
+
+    stored = 0
+    skipped = 0
+    details = []
+
+    for item in suggestions:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+
+        left = find_column(
+            conn,
+            item.get("left_table"),
+            item.get("left_column"),
+            item.get("left_schema"),
+            item.get("left_catalog"),
+        ) if item.get("left_table") and item.get("left_column") else None
+
+        right = find_column(
+            conn,
+            item.get("right_table"),
+            item.get("right_column"),
+            item.get("right_schema"),
+            item.get("right_catalog"),
+        ) if item.get("right_table") and item.get("right_column") else None
+
+        if not left or not right or left["table_id"] == right["table_id"]:
+            skipped += 1
+            continue
+
+        confidence = item.get("confidence", 0.75)
+        reason = (item.get("reason") or "Suggested by configured LLM").strip()
+
+        if save_llm_relationship(conn, left, right, confidence, reason):
+            stored += 1
+            details.append(
+                f"{left['table_name']}.{left['column_name']} = "
+                f"{right['table_name']}.{right['column_name']}"
+            )
+        else:
+            skipped += 1
+
+    return stored, skipped, details
+
+
 def snapshot_table_identity(table):
     return {
         "catalog": table.get("catalog"),
@@ -320,7 +702,7 @@ def serialize_working_schema(conn):
     relationships = conn.execute(
         """
         SELECT
-            r.confidence, r.source,
+            r.confidence, r.source, r.notes,
             lt.catalog left_catalog, lt.schema_name left_schema, lt.table_name left_table,
             lc.column_name left_column,
             rt.catalog right_catalog, rt.schema_name right_schema, rt.table_name right_table,
@@ -352,8 +734,20 @@ def serialize_working_schema(conn):
                 },
                 "confidence": rel["confidence"],
                 "source": rel["source"],
+                "notes": rel["notes"],
             }
         )
+
+    knowledge = [
+        {
+            "title": row["title"],
+            "category": row["category"],
+            "content": row["content"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        for row in knowledge_rows(conn)
+    ]
 
     return {
         "format": "querybridge-schema",
@@ -361,6 +755,7 @@ def serialize_working_schema(conn):
         "generated_at": now_iso(),
         "tables": payload_tables,
         "relationships": payload_relationships,
+        "knowledge": knowledge,
     }
 
 
@@ -390,6 +785,7 @@ def restore_working_schema(conn, payload):
 
     conn.execute("DELETE FROM qb_relationships")
     conn.execute("DELETE FROM qb_imports")
+    conn.execute("DELETE FROM qb_knowledge")
     conn.execute("DELETE FROM qb_columns")
     conn.execute("DELETE FROM qb_tables")
 
@@ -483,8 +879,8 @@ def restore_working_schema(conn, payload):
         conn.execute(
             """
             INSERT OR IGNORE INTO qb_relationships
-            (left_table_id, left_column_id, right_table_id, right_column_id, confidence, source)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (left_table_id, left_column_id, right_table_id, right_column_id, confidence, source, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 table_ids[left_table_key],
@@ -493,9 +889,28 @@ def restore_working_schema(conn, payload):
                 column_ids[right_column_key],
                 float(rel.get("confidence", 0)),
                 rel.get("source") or "snapshot",
+                rel.get("notes"),
             ),
         )
         restored_relationships += 1
+
+    for item in payload.get("knowledge", []):
+        if not isinstance(item, dict) or not item.get("title") or not item.get("content"):
+            continue
+        conn.execute(
+            """
+            INSERT INTO qb_knowledge
+            (title, category, content, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                item["title"],
+                item.get("category") or "general",
+                item["content"],
+                item.get("created_at") or now_iso(),
+                item.get("updated_at") or now_iso(),
+            ),
+        )
 
     if not payload.get("relationships"):
         infer_relationships(conn)
@@ -942,6 +1357,269 @@ def delete_schema_snapshot(snapshot_id):
         flash("Schema snapshot was not found.", "error")
     conn.close()
     return redirect(url_for("index") + "#schema-library")
+
+
+
+@app.route("/llm", methods=["GET"])
+def llm_setup():
+    conn = db()
+    settings = get_llm_settings(conn)
+    conn.close()
+    return render_template("llm_setup.html", settings=settings)
+
+
+@app.post("/llm")
+def save_llm_setup():
+    base_url = normalize_base_url(request.form.get("base_url"))
+    model = (request.form.get("model") or "").strip()
+    temperature_raw = request.form.get("temperature", "0.2")
+    timeout_raw = request.form.get("timeout_seconds", "120")
+    action = request.form.get("action", "save")
+
+    try:
+        temperature = float(temperature_raw)
+        timeout_seconds = int(timeout_raw)
+        if temperature < 0 or temperature > 2:
+            raise ValueError("Temperature must be between 0 and 2.")
+        if timeout_seconds < 5 or timeout_seconds > 1800:
+            raise ValueError("Timeout must be between 5 and 1800 seconds.")
+        if not base_url:
+            raise ValueError("Base URL is required.")
+
+        conn = db()
+        conn.execute(
+            """
+            UPDATE qb_llm_settings
+            SET provider = 'ollama', base_url = ?, model = ?,
+                temperature = ?, timeout_seconds = ?, updated_at = ?
+            WHERE id = 1
+            """,
+            (base_url, model, temperature, timeout_seconds, now_iso()),
+        )
+        conn.commit()
+
+        if action == "test":
+            models = ollama_models(base_url, min(timeout_seconds, 30))
+            if model and model not in models:
+                flash(
+                    f"Connected to Ollama. Model '{model}' was not returned by /api/tags.",
+                    "error",
+                )
+            else:
+                model_text = f" Model: {model}." if model else ""
+                flash(
+                    f"Connected to Ollama successfully. {len(models)} model(s) available.{model_text}",
+                    "success",
+                )
+        else:
+            flash("LLM settings saved.", "success")
+        conn.close()
+    except Exception as exc:
+        flash(str(exc), "error")
+
+    return redirect(url_for("llm_setup"))
+
+
+@app.get("/api/llm/models")
+def api_llm_models():
+    conn = db()
+    settings = get_llm_settings(conn)
+    conn.close()
+    try:
+        models = ollama_models(
+            settings.get("base_url"),
+            min(int(settings.get("timeout_seconds") or 120), 30),
+        )
+        return jsonify({"ok": True, "models": models})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc), "models": []}), 502
+
+
+@app.route("/knowledge")
+def knowledge():
+    conn = db()
+    items = [dict(row) for row in knowledge_rows(conn)]
+    relationships = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT
+                r.id, r.confidence, r.source, r.notes,
+                lt.table_name left_table, lc.column_name left_column,
+                rt.table_name right_table, rc.column_name right_column
+            FROM qb_relationships r
+            JOIN qb_tables lt ON lt.id = r.left_table_id
+            JOIN qb_columns lc ON lc.id = r.left_column_id
+            JOIN qb_tables rt ON rt.id = r.right_table_id
+            JOIN qb_columns rc ON rc.id = r.right_column_id
+            ORDER BY r.source DESC, r.confidence DESC, r.id
+            """
+        ).fetchall()
+    ]
+    table_count = conn.execute("SELECT COUNT(*) n FROM qb_tables").fetchone()["n"]
+    column_count = conn.execute("SELECT COUNT(*) n FROM qb_columns").fetchone()["n"]
+    conn.close()
+    return render_template(
+        "knowledge.html",
+        items=items,
+        relationships=relationships,
+        table_count=table_count,
+        column_count=column_count,
+    )
+
+
+@app.post("/knowledge")
+def add_knowledge():
+    title = (request.form.get("title") or "").strip()
+    category = (request.form.get("category") or "general").strip()
+    content = (request.form.get("content") or "").strip()
+
+    if not title or not content:
+        flash("Knowledge title and content are required.", "error")
+        return redirect(url_for("knowledge"))
+
+    conn = db()
+    conn.execute(
+        """
+        INSERT INTO qb_knowledge(title, category, content, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (title, category, content, now_iso(), now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    flash("Knowledge item added.", "success")
+    return redirect(url_for("knowledge"))
+
+
+@app.post("/knowledge/<int:item_id>/delete")
+def delete_knowledge(item_id):
+    conn = db()
+    conn.execute("DELETE FROM qb_knowledge WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+    flash("Knowledge item deleted.", "success")
+    return redirect(url_for("knowledge"))
+
+
+@app.post("/relationships/guess")
+def guess_relationships():
+    conn = db()
+    try:
+        table_count = conn.execute("SELECT COUNT(*) n FROM qb_tables").fetchone()["n"]
+        field_count = conn.execute("SELECT COUNT(*) n FROM qb_columns").fetchone()["n"]
+        if not table_count or not field_count:
+            raise ValueError("Capture a schema with fields before asking the LLM to infer links.")
+
+        stored, skipped, _ = llm_guess_relationships(conn)
+        conn.commit()
+        flash(
+            f"LLM relationship pass complete: {stored} stored/updated, {skipped} skipped.",
+            "success",
+        )
+    except Exception as exc:
+        conn.rollback()
+        flash(f"LLM link analysis failed: {exc}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("knowledge") + "#relationships")
+
+
+@app.route("/chat")
+def schema_chat():
+    conn = db()
+    settings = get_llm_settings(conn)
+    messages = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, role, content, created_at
+            FROM qb_chat_messages
+            ORDER BY id
+            LIMIT 200
+            """
+        ).fetchall()
+    ]
+    table_count = conn.execute("SELECT COUNT(*) n FROM qb_tables").fetchone()["n"]
+    knowledge_count = conn.execute("SELECT COUNT(*) n FROM qb_knowledge").fetchone()["n"]
+    conn.close()
+    return render_template(
+        "chat.html",
+        messages=messages,
+        settings=settings,
+        table_count=table_count,
+        knowledge_count=knowledge_count,
+    )
+
+
+@app.post("/api/chat")
+def api_schema_chat():
+    body = request.get_json(silent=True) or {}
+    question = (body.get("message") or "").strip()
+    if not question:
+        return jsonify({"ok": False, "error": "Enter a question."}), 400
+
+    conn = db()
+    try:
+        context = schema_context_text(conn, include_relationships=True)
+        system = """You are QueryBridge, a local schema assistant.
+Use only the supplied QueryBridge schema, relationships and knowledge for schema-specific claims.
+Help the user understand tables, fields, likely joins, and draft Databricks SQL.
+Do not invent tables or columns. If information is missing, say what metadata or knowledge would resolve it.
+When you write SQL, prefer explicit JOIN clauses and fully qualified names when available."""
+
+        history = conn.execute(
+            """
+            SELECT role, content
+            FROM qb_chat_messages
+            ORDER BY id DESC
+            LIMIT 12
+            """
+        ).fetchall()
+        history = list(reversed(history))
+
+        messages = [
+            {"role": "system", "content": system + "\n\n" + context},
+            *[
+                {"role": row["role"], "content": row["content"]}
+                for row in history
+                if row["role"] in {"user", "assistant"}
+            ],
+            {"role": "user", "content": question},
+        ]
+
+        conn.execute(
+            """
+            INSERT INTO qb_chat_messages(role, content, created_at)
+            VALUES ('user', ?, ?)
+            """,
+            (question, now_iso()),
+        )
+        answer = call_llm(conn, messages)
+        conn.execute(
+            """
+            INSERT INTO qb_chat_messages(role, content, created_at)
+            VALUES ('assistant', ?, ?)
+            """,
+            (answer, now_iso()),
+        )
+        conn.commit()
+        return jsonify({"ok": True, "answer": answer})
+    except Exception as exc:
+        conn.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        conn.close()
+
+
+@app.post("/chat/clear")
+def clear_schema_chat():
+    conn = db()
+    conn.execute("DELETE FROM qb_chat_messages")
+    conn.commit()
+    conn.close()
+    flash("Schema chat cleared.", "success")
+    return redirect(url_for("schema_chat"))
 
 
 @app.post("/capture/tables")
