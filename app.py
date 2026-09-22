@@ -544,10 +544,26 @@ def validate_schema_operations(conn, operations):
             raise ValueError(f"Operation {index} is not an object.")
         op = dict(raw)
         action = str(op.get("action") or "").strip()
-        if action not in allowed:
-            raise ValueError(f"Operation {index} has unsupported action '{action}'.")
-
         error = None
+        if action not in allowed:
+            raw_action = (
+                op.get("action")
+                or op.get("operation")
+                or op.get("type")
+                or op.get("op")
+                or op.get("change")
+                or "<missing>"
+            )
+            checked.append(
+                {
+                    "index": index,
+                    "action": action or str(raw_action),
+                    "operation": op,
+                    "valid": False,
+                    "error": f"unsupported action '{raw_action}'",
+                }
+            )
+            continue
 
         if action == "add_table":
             name = str(op.get("table_name") or "").strip()
@@ -873,18 +889,218 @@ def apply_schema_operations(conn, operations):
     return applied
 
 
+def normalise_ai_operation(raw):
+    if not isinstance(raw, dict):
+        return raw
+
+    op = dict(raw)
+
+    action_value = (
+        op.get("action")
+        or op.get("operation")
+        or op.get("type")
+        or op.get("op")
+        or op.get("change")
+        or ""
+    )
+    action = re.sub(r"[^a-z0-9]+", "_", str(action_value).strip().casefold()).strip("_")
+
+    action_aliases = {
+        "create_table": "add_table",
+        "new_table": "add_table",
+        "delete_table": "remove_table",
+        "drop_table": "remove_table",
+        "update_table_name": "rename_table",
+        "change_table_name": "rename_table",
+        "add_column": "add_field",
+        "create_field": "add_field",
+        "create_column": "add_field",
+        "new_field": "add_field",
+        "new_column": "add_field",
+        "delete_field": "remove_field",
+        "delete_column": "remove_field",
+        "remove_column": "remove_field",
+        "drop_field": "remove_field",
+        "drop_column": "remove_field",
+        "rename_column": "rename_field",
+        "update_field_name": "rename_field",
+        "change_column_name": "rename_field",
+        "change_type": "change_field_type",
+        "change_column_type": "change_field_type",
+        "modify_type": "change_field_type",
+        "update_type": "change_field_type",
+        "set_data_type": "change_field_type",
+        "update_data_type": "change_field_type",
+        "set_nullable": "set_field_nullable",
+        "change_nullable": "set_field_nullable",
+        "update_nullability": "set_field_nullable",
+        "set_nullability": "set_field_nullable",
+        "add_link": "add_relationship",
+        "create_link": "add_relationship",
+        "link_tables": "add_relationship",
+        "link_fields": "add_relationship",
+        "add_join": "add_relationship",
+        "create_relationship": "add_relationship",
+        "link": "add_relationship",
+        "delete_link": "remove_relationship",
+        "remove_link": "remove_relationship",
+        "unlink_tables": "remove_relationship",
+        "remove_join": "remove_relationship",
+        "delete_relationship": "remove_relationship",
+    }
+    action = action_aliases.get(action, action)
+    op["action"] = action
+
+    def first(*names):
+        for name in names:
+            value = op.get(name)
+            if value not in {None, ""}:
+                return value
+        return None
+
+    if action in {
+        "add_table",
+        "remove_table",
+        "rename_table",
+        "add_field",
+        "remove_field",
+        "rename_field",
+        "change_field_type",
+        "set_field_nullable",
+    }:
+        if not op.get("table_name"):
+            op["table_name"] = first("table", "tableName", "source_table", "entity", "entity_name")
+        if not op.get("schema_name"):
+            op["schema_name"] = first("schema", "schemaName", "table_schema")
+        if not op.get("catalog"):
+            op["catalog"] = first("catalog_name", "catalogName", "table_catalog")
+
+    if action in {
+        "add_field",
+        "remove_field",
+        "rename_field",
+        "change_field_type",
+        "set_field_nullable",
+    }:
+        if not op.get("column_name"):
+            op["column_name"] = first(
+                "field_name", "field", "column", "columnName", "fieldName"
+            )
+
+    if action in {"rename_table", "rename_field"} and not op.get("new_name"):
+        op["new_name"] = first(
+            "new_table_name",
+            "new_column_name",
+            "new_field_name",
+            "to_name",
+            "target_name",
+            "replacement_name",
+        )
+
+    if action in {"add_field", "change_field_type"} and not op.get("data_type"):
+        op["data_type"] = first(
+            "field_type", "column_type", "datatype", "new_type", "new_data_type"
+        )
+
+    if action == "set_field_nullable" and "nullable" not in op:
+        nullable = first("is_nullable", "null_allowed", "allow_null")
+        if nullable is not None:
+            if isinstance(nullable, str):
+                op["nullable"] = nullable.strip().casefold() in {
+                    "true", "1", "yes", "y", "nullable", "null"
+                }
+            else:
+                op["nullable"] = bool(nullable)
+
+    if action in {"add_relationship", "remove_relationship"}:
+        left = op.get("left") if isinstance(op.get("left"), dict) else {}
+        right = op.get("right") if isinstance(op.get("right"), dict) else {}
+
+        op["left_table"] = (
+            op.get("left_table")
+            or first("source_table", "from_table", "child_table", "many_table")
+            or left.get("table")
+            or left.get("table_name")
+        )
+        op["left_column"] = (
+            op.get("left_column")
+            or first("source_column", "from_column", "source_field", "child_column", "many_column")
+            or left.get("column")
+            or left.get("column_name")
+            or left.get("field")
+        )
+        op["right_table"] = (
+            op.get("right_table")
+            or first("target_table", "to_table", "parent_table", "one_table")
+            or right.get("table")
+            or right.get("table_name")
+        )
+        op["right_column"] = (
+            op.get("right_column")
+            or first("target_column", "to_column", "target_field", "parent_column", "one_column")
+            or right.get("column")
+            or right.get("column_name")
+            or right.get("field")
+        )
+
+        op["left_schema"] = (
+            op.get("left_schema")
+            or first("source_schema", "from_schema")
+            or left.get("schema")
+            or left.get("schema_name")
+        )
+        op["right_schema"] = (
+            op.get("right_schema")
+            or first("target_schema", "to_schema")
+            or right.get("schema")
+            or right.get("schema_name")
+        )
+        op["left_catalog"] = (
+            op.get("left_catalog")
+            or first("source_catalog", "from_catalog")
+            or left.get("catalog")
+        )
+        op["right_catalog"] = (
+            op.get("right_catalog")
+            or first("target_catalog", "to_catalog")
+            or right.get("catalog")
+        )
+
+    if not op.get("reason"):
+        op["reason"] = first("rationale", "explanation", "why", "note", "notes") or ""
+
+    return op
+
+
 def normalise_ai_operations(payload):
+    if isinstance(payload, list):
+        payload = {"operations": payload}
     if not isinstance(payload, dict):
-        raise ValueError("The AI response was not a JSON object.")
-    operations = payload.get("operations")
+        raise ValueError("The AI response was not a JSON object or operations list.")
+
+    operations = (
+        payload.get("operations")
+        or payload.get("changes")
+        or payload.get("proposals")
+        or payload.get("actions")
+    )
     if not isinstance(operations, list):
         raise ValueError("The AI response did not contain an operations list.")
-    return {
-        "title": str(payload.get("title") or "AI schema proposal").strip()[:240],
-        "summary": str(payload.get("summary") or "").strip()[:4000],
-        "operations": operations,
-    }
 
+    return {
+        "title": str(
+            payload.get("title")
+            or payload.get("name")
+            or "AI schema proposal"
+        ).strip()[:240],
+        "summary": str(
+            payload.get("summary")
+            or payload.get("description")
+            or payload.get("reasoning")
+            or ""
+        ).strip()[:4000],
+        "operations": [normalise_ai_operation(item) for item in operations],
+    }
 
 def create_ai_schema_proposal(conn, request_text, selected_skill_keys=None):
     all_skills = ai_skill_rows(conn, enabled_only=True)
@@ -912,12 +1128,20 @@ Supported operations:
 - add_relationship: left_table, left_column, right_table, right_column, optional left_schema/right_schema/left_catalog/right_catalog/confidence, reason
 - remove_relationship: the same relationship identity fields, reason
 
-Return:
+Return exactly this JSON structure:
 {
   "title": "short title",
   "summary": "why these changes are proposed",
-  "operations": [...]
+  "operations": [
+    {
+      "action": "one_exact_supported_action_name"
+    }
+  ]
 }
+
+The key MUST be named "action". The action value MUST be exactly one of:
+add_table, remove_table, rename_table, add_field, remove_field, rename_field,
+change_field_type, set_field_nullable, add_relationship, remove_relationship.
 
 Rules:
 - Never invent an existing table or field for operations that require an existing object.
@@ -951,7 +1175,11 @@ Rules:
     invalid = [item for item in checked if not item["valid"]]
     if invalid:
         rejected_text = "; ".join(
-            f"#{item['index']} {item['action']}: {item['error']}" for item in invalid
+            (
+                f"#{item['index']} {item['action']}: {item['error']} "
+                f"(returned {json.dumps(item['operation'], ensure_ascii=False)[:500]})"
+            )
+            for item in invalid
         )
         proposal["summary"] = (
             proposal["summary"]
