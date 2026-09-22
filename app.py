@@ -8,13 +8,14 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, Response, flash, jsonify, redirect, render_template, request, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "instance" / "querybridge.db"
 
 app = Flask(__name__)
 app.secret_key = "querybridge-local-dev"
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 
 def db():
@@ -82,6 +83,15 @@ def init_db():
             name TEXT NOT NULL,
             query_json TEXT NOT NULL,
             sql_text TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_schema_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            snapshot_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -258,6 +268,295 @@ def infer_relationships(conn):
                     """,
                     (lc["table_id"], lc["column_id"], rc["table_id"], rc["column_id"], confidence),
                 )
+
+
+
+def snapshot_table_identity(table):
+    return {
+        "catalog": table.get("catalog"),
+        "schema_name": table.get("schema_name"),
+        "table_name": table.get("table_name"),
+    }
+
+
+def snapshot_key(catalog, schema_name, table_name, column_name=None):
+    base = (catalog or "", schema_name or "", table_name or "")
+    return base + ((column_name or ""),) if column_name is not None else base
+
+
+def serialize_working_schema(conn):
+    tables = conn.execute(
+        """
+        SELECT * FROM qb_tables
+        ORDER BY COALESCE(catalog,''), COALESCE(schema_name,''), table_name
+        """
+    ).fetchall()
+
+    payload_tables = []
+    for table in tables:
+        columns = conn.execute(
+            """
+            SELECT ordinal_position, column_name, data_type, nullable, comment, raw_json
+            FROM qb_columns
+            WHERE table_id = ?
+            ORDER BY ordinal_position
+            """,
+            (table["id"],),
+        ).fetchall()
+
+        payload_tables.append(
+            {
+                "catalog": table["catalog"],
+                "schema_name": table["schema_name"],
+                "table_name": table["table_name"],
+                "table_type": table["table_type"],
+                "is_temporary": table["is_temporary"],
+                "raw_source": table["raw_source"],
+                "captured_at": table["captured_at"],
+                "columns": [dict(column) for column in columns],
+            }
+        )
+
+    relationships = conn.execute(
+        """
+        SELECT
+            r.confidence, r.source,
+            lt.catalog left_catalog, lt.schema_name left_schema, lt.table_name left_table,
+            lc.column_name left_column,
+            rt.catalog right_catalog, rt.schema_name right_schema, rt.table_name right_table,
+            rc.column_name right_column
+        FROM qb_relationships r
+        JOIN qb_tables lt ON lt.id = r.left_table_id
+        JOIN qb_columns lc ON lc.id = r.left_column_id
+        JOIN qb_tables rt ON rt.id = r.right_table_id
+        JOIN qb_columns rc ON rc.id = r.right_column_id
+        ORDER BY r.id
+        """
+    ).fetchall()
+
+    payload_relationships = []
+    for rel in relationships:
+        payload_relationships.append(
+            {
+                "left": {
+                    "catalog": rel["left_catalog"],
+                    "schema_name": rel["left_schema"],
+                    "table_name": rel["left_table"],
+                    "column_name": rel["left_column"],
+                },
+                "right": {
+                    "catalog": rel["right_catalog"],
+                    "schema_name": rel["right_schema"],
+                    "table_name": rel["right_table"],
+                    "column_name": rel["right_column"],
+                },
+                "confidence": rel["confidence"],
+                "source": rel["source"],
+            }
+        )
+
+    return {
+        "format": "querybridge-schema",
+        "format_version": 1,
+        "generated_at": now_iso(),
+        "tables": payload_tables,
+        "relationships": payload_relationships,
+    }
+
+
+def validate_snapshot(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("Schema file must contain a JSON object.")
+    if payload.get("format") != "querybridge-schema":
+        raise ValueError("This is not a QueryBridge schema export.")
+    if payload.get("format_version") != 1:
+        raise ValueError(
+            f"Unsupported QueryBridge schema format version: {payload.get('format_version')}"
+        )
+    if not isinstance(payload.get("tables"), list):
+        raise ValueError("Schema export does not contain a tables list.")
+
+    for table in payload["tables"]:
+        if not isinstance(table, dict) or not table.get("table_name"):
+            raise ValueError("A table in the schema export is missing table_name.")
+        if not isinstance(table.get("columns", []), list):
+            raise ValueError(f"Columns for {table.get('table_name')} are invalid.")
+
+    return payload
+
+
+def restore_working_schema(conn, payload):
+    validate_snapshot(payload)
+
+    conn.execute("DELETE FROM qb_relationships")
+    conn.execute("DELETE FROM qb_imports")
+    conn.execute("DELETE FROM qb_columns")
+    conn.execute("DELETE FROM qb_tables")
+
+    table_ids = {}
+    column_ids = {}
+    field_count = 0
+
+    for table in payload["tables"]:
+        captured_at = table.get("captured_at") or now_iso()
+        cursor = conn.execute(
+            """
+            INSERT INTO qb_tables
+            (catalog, schema_name, table_name, table_type, is_temporary, raw_source, captured_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                table.get("catalog"),
+                table.get("schema_name"),
+                table["table_name"],
+                table.get("table_type"),
+                int(bool(table.get("is_temporary", 0))),
+                table.get("raw_source"),
+                captured_at,
+            ),
+        )
+        table_id = cursor.lastrowid
+        table_key = snapshot_key(
+            table.get("catalog"), table.get("schema_name"), table["table_name"]
+        )
+        table_ids[table_key] = table_id
+
+        for position, column in enumerate(table.get("columns", []), start=1):
+            column_name = column.get("column_name")
+            if not column_name:
+                continue
+            cursor = conn.execute(
+                """
+                INSERT INTO qb_columns
+                (table_id, ordinal_position, column_name, data_type, nullable, comment, raw_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    table_id,
+                    column.get("ordinal_position") or position,
+                    column_name,
+                    column.get("data_type"),
+                    column.get("nullable"),
+                    column.get("comment"),
+                    column.get("raw_json"),
+                ),
+            )
+            column_ids[snapshot_key(
+                table.get("catalog"),
+                table.get("schema_name"),
+                table["table_name"],
+                column_name,
+            )] = cursor.lastrowid
+            field_count += 1
+
+    restored_relationships = 0
+    for rel in payload.get("relationships", []):
+        left = rel.get("left") or {}
+        right = rel.get("right") or {}
+        left_table_key = snapshot_key(
+            left.get("catalog"), left.get("schema_name"), left.get("table_name")
+        )
+        right_table_key = snapshot_key(
+            right.get("catalog"), right.get("schema_name"), right.get("table_name")
+        )
+        left_column_key = snapshot_key(
+            left.get("catalog"),
+            left.get("schema_name"),
+            left.get("table_name"),
+            left.get("column_name"),
+        )
+        right_column_key = snapshot_key(
+            right.get("catalog"),
+            right.get("schema_name"),
+            right.get("table_name"),
+            right.get("column_name"),
+        )
+
+        if (
+            left_table_key not in table_ids
+            or right_table_key not in table_ids
+            or left_column_key not in column_ids
+            or right_column_key not in column_ids
+        ):
+            continue
+
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO qb_relationships
+            (left_table_id, left_column_id, right_table_id, right_column_id, confidence, source)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                table_ids[left_table_key],
+                column_ids[left_column_key],
+                table_ids[right_table_key],
+                column_ids[right_column_key],
+                float(rel.get("confidence", 0)),
+                rel.get("source") or "snapshot",
+            ),
+        )
+        restored_relationships += 1
+
+    if not payload.get("relationships"):
+        infer_relationships(conn)
+        restored_relationships = conn.execute(
+            "SELECT COUNT(*) n FROM qb_relationships"
+        ).fetchone()["n"]
+
+    return len(table_ids), field_count, restored_relationships
+
+
+def store_named_snapshot(conn, name, description, payload):
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Give the schema snapshot a name.")
+
+    payload = dict(payload)
+    payload["snapshot_name"] = name
+    payload["description"] = (description or "").strip()
+    payload["saved_at"] = now_iso()
+
+    existing = conn.execute(
+        "SELECT id, created_at FROM qb_schema_snapshots WHERE name = ?",
+        (name,),
+    ).fetchone()
+
+    if existing:
+        conn.execute(
+            """
+            UPDATE qb_schema_snapshots
+            SET description = ?, snapshot_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                payload["description"],
+                json.dumps(payload, ensure_ascii=False),
+                now_iso(),
+                existing["id"],
+            ),
+        )
+        return existing["id"], True
+
+    cursor = conn.execute(
+        """
+        INSERT INTO qb_schema_snapshots
+        (name, description, snapshot_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            name,
+            payload["description"],
+            json.dumps(payload, ensure_ascii=False),
+            now_iso(),
+            now_iso(),
+        ),
+    )
+    return cursor.lastrowid, False
+
+
+def safe_export_name(name):
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", name.strip()).strip("._")
+    return cleaned or "querybridge_schema"
 
 
 def import_table_list(raw_text: str, catalog_override: str, schema_override: str):
@@ -447,6 +746,13 @@ def index():
         """
     ).fetchall()
     rel_count = conn.execute("SELECT COUNT(*) n FROM qb_relationships").fetchone()["n"]
+    snapshot_rows = conn.execute(
+        """
+        SELECT id, name, description, snapshot_json, created_at, updated_at
+        FROM qb_schema_snapshots
+        ORDER BY updated_at DESC, name
+        """
+    ).fetchall()
     conn.close()
 
     table_cards = []
@@ -461,7 +767,181 @@ def index():
             }
         )
 
-    return render_template("index.html", tables=table_cards, relationship_count=rel_count)
+    snapshots = []
+    for row in snapshot_rows:
+        try:
+            snapshot_payload = json.loads(row["snapshot_json"])
+            snapshot_tables = snapshot_payload.get("tables", [])
+            table_count = len(snapshot_tables)
+            field_count = sum(len(t.get("columns", [])) for t in snapshot_tables)
+            relationship_count = len(snapshot_payload.get("relationships", []))
+        except Exception:
+            table_count = 0
+            field_count = 0
+            relationship_count = 0
+
+        snapshots.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "description": row["description"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "table_count": table_count,
+                "field_count": field_count,
+                "relationship_count": relationship_count,
+            }
+        )
+
+    return render_template(
+        "index.html",
+        tables=table_cards,
+        relationship_count=rel_count,
+        snapshots=snapshots,
+    )
+
+
+
+@app.post("/schemas/save")
+def save_schema_snapshot():
+    name = request.form.get("name", "")
+    description = request.form.get("description", "")
+    conn = db()
+    try:
+        payload = serialize_working_schema(conn)
+        if not payload["tables"]:
+            raise ValueError("There is no captured schema to save yet.")
+        _, updated = store_named_snapshot(conn, name, description, payload)
+        conn.commit()
+        action = "updated" if updated else "saved"
+        flash(f'Schema snapshot "{name.strip()}" {action}.', "success")
+    except Exception as exc:
+        conn.rollback()
+        flash(str(exc), "error")
+    finally:
+        conn.close()
+    return redirect(url_for("index") + "#schema-library")
+
+
+@app.post("/schemas/import")
+def import_schema_snapshot():
+    uploaded = request.files.get("schema_file")
+    requested_name = request.form.get("name", "").strip()
+    description = request.form.get("description", "").strip()
+    load_now = request.form.get("load_now") == "1"
+
+    if not uploaded or not uploaded.filename:
+        flash("Choose a QueryBridge JSON schema file to import.", "error")
+        return redirect(url_for("index") + "#schema-library")
+
+    conn = db()
+    try:
+        payload = json.load(uploaded.stream)
+        validate_snapshot(payload)
+
+        imported_name = (
+            requested_name
+            or str(payload.get("snapshot_name") or "").strip()
+            or Path(uploaded.filename).stem
+        )
+        imported_description = description or str(payload.get("description") or "").strip()
+
+        snapshot_id, updated = store_named_snapshot(
+            conn, imported_name, imported_description, payload
+        )
+
+        if load_now:
+            table_count, field_count, rel_count = restore_working_schema(conn, payload)
+            flash(
+                f'Imported and loaded "{imported_name}": '
+                f"{table_count} tables, {field_count} fields, {rel_count} links.",
+                "success",
+            )
+        else:
+            action = "updated" if updated else "imported"
+            flash(f'Schema snapshot "{imported_name}" {action}.', "success")
+
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        flash(f"Schema import failed: {exc}", "error")
+    finally:
+        conn.close()
+
+    return redirect(url_for("index") + "#schema-library")
+
+
+@app.post("/schemas/<int:snapshot_id>/load")
+def load_schema_snapshot(snapshot_id):
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM qb_schema_snapshots WHERE id = ?",
+            (snapshot_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("Schema snapshot was not found.")
+
+        payload = json.loads(row["snapshot_json"])
+        table_count, field_count, rel_count = restore_working_schema(conn, payload)
+        conn.commit()
+        flash(
+            f'Loaded "{row["name"]}": '
+            f"{table_count} tables, {field_count} fields, {rel_count} links.",
+            "success",
+        )
+    except Exception as exc:
+        conn.rollback()
+        flash(f"Could not load schema: {exc}", "error")
+    finally:
+        conn.close()
+
+    return redirect(url_for("index") + "#schema-library")
+
+
+@app.get("/schemas/<int:snapshot_id>/export")
+def export_schema_snapshot(snapshot_id):
+    conn = db()
+    row = conn.execute(
+        "SELECT name, snapshot_json FROM qb_schema_snapshots WHERE id = ?",
+        (snapshot_id,),
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        return Response("Schema snapshot not found.", status=404, mimetype="text/plain")
+
+    filename = safe_export_name(row["name"]) + ".querybridge.json"
+    try:
+        payload = json.loads(row["snapshot_json"])
+        body = json.dumps(payload, indent=2, ensure_ascii=False)
+    except Exception:
+        body = row["snapshot_json"]
+
+    return Response(
+        body,
+        mimetype="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
+
+@app.post("/schemas/<int:snapshot_id>/delete")
+def delete_schema_snapshot(snapshot_id):
+    conn = db()
+    row = conn.execute(
+        "SELECT name FROM qb_schema_snapshots WHERE id = ?",
+        (snapshot_id,),
+    ).fetchone()
+    if row:
+        conn.execute("DELETE FROM qb_schema_snapshots WHERE id = ?", (snapshot_id,))
+        conn.commit()
+        flash(f'Deleted schema snapshot "{row["name"]}".', "success")
+    else:
+        flash("Schema snapshot was not found.", "error")
+    conn.close()
+    return redirect(url_for("index") + "#schema-library")
 
 
 @app.post("/capture/tables")
@@ -497,7 +977,7 @@ def reset_metadata():
     conn.execute("DELETE FROM qb_imports")
     conn.commit()
     conn.close()
-    flash("Local metadata store cleared.", "success")
+    flash("Working metadata cleared. Saved schema snapshots were kept.", "success")
     return redirect(url_for("index"))
 
 
