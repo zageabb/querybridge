@@ -234,3 +234,12 @@ After import, fields can be added or removed in the normal visual builder. If a 
 If the imported query contains equality JOINs that are not already known to QueryBridge, the builder offers **Create relationship proposal from imported JOINs**. These links go to the AI Skills proposal queue for explicit review before they become trusted schema relationships.
 
 The import process uses only the locally stored schema for matching. It does not connect to Databricks.
+
+
+## Relationship cleanup and provenance
+
+QueryBridge records the source of every stored relationship. The **Knowledge** page now includes **Relationship controls** so old heuristic relationships can be removed without losing links created through newer workflows.
+
+**Clear auto-generated links** deletes only relationships with source `auto`. It preserves relationships whose source is `llm`, `ai-approved`, `manual`, snapshot/restored provenance, and approved relationships observed in imported SQL.
+
+Legacy heuristic inference is disabled by default. This prevents cleared `auto` links from being recreated when table metadata is refreshed, an AI schema proposal is applied, or a snapshot without explicit relationships is loaded. It can be explicitly re-enabled from the Relationship controls panel if needed.
