@@ -17,6 +17,7 @@
         <a href="{{ url_for('builder') }}">Query Builder</a>
         <a class="active" href="{{ url_for('knowledge') }}">Knowledge</a>
         <a href="{{ url_for('schema_chat') }}">Schema Chat</a>
+        <a href="{{ url_for('ai_skills') }}">AI Skills</a>
         <a href="{{ url_for('llm_setup') }}">LLM Setup</a>
     </nav>
 </header>
@@ -68,7 +69,7 @@
 
     <div class="knowledge-grid">
         <section class="panel">
-            <h2>Add knowledge</h2>
+            <h2>Add Markdown knowledge</h2>
             <form method="post" action="{{ url_for('add_knowledge') }}">
                 <div class="two-col">
                     <label>Title
@@ -84,9 +85,10 @@
                         </select>
                     </label>
                 </div>
-                <label>Information
-                    <textarea name="content" rows="7" placeholder="Example: EKPO.EBELN joins to EKKO.EBELN. Supplier numbers are stored in LIFNR and may contain leading zeros." required></textarea>
+                <label>Markdown content
+                    <textarea name="content" rows="10" placeholder="# Example\n\nEKPO.EBELN joins to EKKO.EBELN.\n\n| Field | Meaning |\n|---|---|\n| LIFNR | Supplier number |" required></textarea>
                 </label>
+                <p class="hint">Supports headings, lists, fenced code blocks and Markdown tables.</p>
                 <button class="primary" type="submit">Add knowledge</button>
             </form>
         </section>
@@ -98,7 +100,7 @@
                 <button class="primary" type="submit" {% if not table_count or not column_count %}disabled{% endif %}>AI Guess Links</button>
                 <a class="secondary button-link" href="{{ url_for('llm_setup') }}">LLM Setup</a>
             </form>
-            <p class="hint">LLM-created relationships are marked <strong>llm</strong> and include the model's reason. They can then be used by the Query Builder.</p>
+            <p class="hint">This now creates a reviewable relationship proposal. Open <strong>AI Skills</strong> to inspect and apply or reject it.</p>
         </section>
     </div>
 
@@ -122,7 +124,10 @@
                     <button class="danger small" type="submit">Delete</button>
                 </form>
             </div>
-            <div class="knowledge-content">{{ item.content }}</div>
+            <div class="knowledge-content knowledge-excerpt">{{ item.content[:700] }}{% if item.content|length > 700 %}…{% endif %}</div>
+            <div class="knowledge-card-actions">
+                <a class="secondary button-link small" href="{{ url_for('knowledge_document', item_id=item.id) }}">Open Markdown</a>
+            </div>
         </article>
         {% endfor %}
     </div>
