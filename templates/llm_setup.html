@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QueryBridge - LLM Setup</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+    <div>
+        <div class="brand">QueryBridge</div>
+        <div class="subtitle">Local schema intelligence</div>
+    </div>
+    <nav>
+        <a href="{{ url_for('index') }}">Metadata</a>
+        <a href="{{ url_for('builder') }}">Query Builder</a>
+        <a href="{{ url_for('knowledge') }}">Knowledge</a>
+        <a href="{{ url_for('schema_chat') }}">Schema Chat</a>
+        <a class="active" href="{{ url_for('llm_setup') }}">LLM Setup</a>
+    </nav>
+</header>
+
+<main class="page narrow-page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <section class="hero">
+        <div>
+            <h1>LLM Setup</h1>
+            <p>Configure the local Ollama model QueryBridge uses for schema chat and AI-assisted relationship discovery.</p>
+        </div>
+    </section>
+
+    <section class="panel">
+        <form method="post" action="{{ url_for('save_llm_setup') }}">
+            <label>Provider
+                <input value="Ollama" disabled>
+            </label>
+
+            <label>Ollama base URL
+                <input name="base_url" value="{{ settings.base_url }}" placeholder="http://localhost:11434" required>
+            </label>
+
+            <label>Model
+                <div class="inline-control">
+                    <input id="model-input" name="model" value="{{ settings.model }}" list="ollama-models" placeholder="e.g. qwen2.5-coder:7b">
+                    <button id="load-models" class="secondary" type="button">Load models</button>
+                </div>
+                <datalist id="ollama-models"></datalist>
+                <span id="model-status" class="hint"></span>
+            </label>
+
+            <div class="two-col">
+                <label>Temperature
+                    <input type="number" min="0" max="2" step="0.1" name="temperature" value="{{ settings.temperature }}">
+                </label>
+                <label>Timeout (seconds)
+                    <input type="number" min="5" max="1800" name="timeout_seconds" value="{{ settings.timeout_seconds }}">
+                </label>
+            </div>
+
+            <div class="form-actions">
+                <button class="primary" type="submit" name="action" value="save">Save settings</button>
+                <button class="secondary" type="submit" name="action" value="test">Save & test connection</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h2>What the LLM receives</h2>
+        <p>QueryBridge sends the current working schema, known/inferred relationships, and the knowledge entries you add. It does not require a live Databricks connection.</p>
+        <div class="info-grid">
+            <div><strong>Schema Chat</strong><span>Questions about tables, fields, joins and Databricks SQL.</span></div>
+            <div><strong>AI Guess Links</strong><span>Suggests equality joins and validates every proposed table/field against the captured schema.</span></div>
+            <div><strong>Knowledge</strong><span>Package notes, business rules and naming conventions are included as context.</span></div>
+        </div>
+    </section>
+</main>
+
+<script>
+const loadButton = document.getElementById("load-models");
+const datalist = document.getElementById("ollama-models");
+const status = document.getElementById("model-status");
+
+loadButton.addEventListener("click", async function () {
+    loadButton.disabled = true;
+    status.textContent = "Loading models from the saved Ollama URL...";
+    try {
+        const response = await fetch("{{ url_for('api_llm_models') }}");
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "Could not load models");
+        datalist.innerHTML = "";
+        data.models.forEach(function (model) {
+            const option = document.createElement("option");
+            option.value = model;
+            datalist.appendChild(option);
+        });
+        status.textContent = data.models.length + " model(s) available. Start typing in Model to select one.";
+    } catch (error) {
+        status.textContent = error.message;
+    } finally {
+        loadButton.disabled = false;
+    }
+});
+</script>
+</body>
+</html>
