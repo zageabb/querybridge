@@ -432,6 +432,8 @@ def import_description(table_id: int, raw_text: str):
     return len(columns)
 
 
+init_db()
+
 @app.route("/")
 def index():
     conn = db()
