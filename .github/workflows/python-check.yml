@@ -29,4 +29,8 @@ jobs:
           assert "/knowledge/import-pack" in rules
           assert "/chat" in rules
           assert "/api/chat" in rules
+          assert "/schema/proposals/create" in rules
+          assert "/ai-skills" in rules
+          assert "/api/markdown/render" in rules
+          assert "/knowledge/<int:item_id>" in rules
           PY
