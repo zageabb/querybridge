@@ -395,6 +395,83 @@ def knowledge_rows(conn):
     ).fetchall()
 
 
+
+def import_builtin_knowledge_pack(conn):
+    manifest_path = BASE_DIR / "knowledge" / "manifest.json"
+    if not manifest_path.exists():
+        raise ValueError("Built-in knowledge manifest was not found.")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("format") != "querybridge-knowledge-manifest":
+        raise ValueError("Built-in knowledge manifest format is invalid.")
+
+    entries = manifest.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("Built-in knowledge manifest has no entries list.")
+
+    added = 0
+    updated = 0
+    skipped = 0
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            skipped += 1
+            continue
+
+        title = str(entry.get("title") or "").strip()
+        category = str(entry.get("category") or "general").strip() or "general"
+        filename = str(entry.get("file") or "").strip()
+
+        if not title or not filename:
+            skipped += 1
+            continue
+
+        safe_name = Path(filename).name
+        file_path = BASE_DIR / "knowledge" / safe_name
+        if not file_path.exists() or not file_path.is_file():
+            skipped += 1
+            continue
+
+        content = file_path.read_text(encoding="utf-8").strip()
+        if not content:
+            skipped += 1
+            continue
+
+        existing = conn.execute(
+            "SELECT id FROM qb_knowledge WHERE lower(title) = lower(?)",
+            (title,),
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                """
+                UPDATE qb_knowledge
+                SET category = ?, content = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (category, content, now_iso(), existing["id"]),
+            )
+            updated += 1
+        else:
+            conn.execute(
+                """
+                INSERT INTO qb_knowledge
+                (title, category, content, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (title, category, content, now_iso(), now_iso()),
+            )
+            added += 1
+
+    return {
+        "pack": manifest.get("pack") or "Built-in knowledge pack",
+        "added": added,
+        "updated": updated,
+        "skipped": skipped,
+        "total": len(entries),
+    }
+
+
 def schema_context_text(conn, include_relationships=True, max_chars=60000):
     tables = conn.execute(
         """
@@ -1464,6 +1541,33 @@ def knowledge():
     ]
     table_count = conn.execute("SELECT COUNT(*) n FROM qb_tables").fetchone()["n"]
     column_count = conn.execute("SELECT COUNT(*) n FROM qb_columns").fetchone()["n"]
+
+    manifest_path = BASE_DIR / "knowledge" / "manifest.json"
+    pack_info = None
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entries = manifest.get("entries", [])
+            titles = [
+                str(entry.get("title") or "").strip()
+                for entry in entries
+                if isinstance(entry, dict) and entry.get("title")
+            ]
+            imported_count = 0
+            for title in titles:
+                if conn.execute(
+                    "SELECT 1 FROM qb_knowledge WHERE lower(title) = lower(?)",
+                    (title,),
+                ).fetchone():
+                    imported_count += 1
+            pack_info = {
+                "name": manifest.get("pack") or "Built-in knowledge pack",
+                "entry_count": len(entries),
+                "imported_count": imported_count,
+            }
+        except Exception:
+            pack_info = None
+
     conn.close()
     return render_template(
         "knowledge.html",
@@ -1471,7 +1575,30 @@ def knowledge():
         relationships=relationships,
         table_count=table_count,
         column_count=column_count,
+        pack_info=pack_info,
     )
+
+
+
+@app.post("/knowledge/import-pack")
+def import_knowledge_pack():
+    conn = db()
+    try:
+        result = import_builtin_knowledge_pack(conn)
+        conn.commit()
+        flash(
+            f'{result["pack"]} imported: '
+            f'{result["added"]} added, {result["updated"]} updated'
+            + (f', {result["skipped"]} skipped.' if result["skipped"] else '.'),
+            "success",
+        )
+    except Exception as exc:
+        conn.rollback()
+        flash(f"Knowledge pack import failed: {exc}", "error")
+    finally:
+        conn.close()
+
+    return redirect(url_for("knowledge"))
 
 
 @app.post("/knowledge")
