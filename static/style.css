@@ -297,3 +297,10 @@ select {
     .chat-shell { grid-template-columns: 1fr; }
     .chat-context { display: none; }
 }
+
+.table-toggle-actions {
+    display: flex;
+    gap: 7px;
+    flex-wrap: wrap;
+    margin: 8px 0 10px;
+}
