@@ -37,6 +37,94 @@
         </div>
     </section>
 
+
+    <section class="schema-library" id="schema-library">
+        <div class="section-title compact">
+            <div>
+                <h1>Saved schema library</h1>
+                <p>Save the schema you are currently building, restore it later, or move it between QueryBridge installations.</p>
+            </div>
+            <span class="status good">{{ snapshots|length }} saved</span>
+        </div>
+
+        <div class="schema-actions">
+            <section class="panel schema-action-panel">
+                <h2>Save current schema</h2>
+                <p>This saves the tables, fields and relationships currently held in QueryBridge. Reusing the same name updates that snapshot.</p>
+                <form method="post" action="{{ url_for('save_schema_snapshot') }}">
+                    <label>Schema name
+                        <input name="name" placeholder="e.g. SCM Production" required>
+                    </label>
+                    <label>Description
+                        <input name="description" placeholder="optional notes">
+                    </label>
+                    <button class="primary" type="submit" {% if not tables %}disabled{% endif %}>Save current schema</button>
+                    {% if not tables %}
+                      <span class="inline-note">Capture at least one table first.</span>
+                    {% endif %}
+                </form>
+            </section>
+
+            <section class="panel schema-action-panel">
+                <h2>Import schema</h2>
+                <p>Import a portable <code>.querybridge.json</code> file into the saved schema library.</p>
+                <form method="post" action="{{ url_for('import_schema_snapshot') }}" enctype="multipart/form-data">
+                    <label>Schema file
+                        <input type="file" name="schema_file" accept=".json,.querybridge.json,application/json" required>
+                    </label>
+                    <div class="two-col">
+                        <label>Name override
+                            <input name="name" placeholder="optional">
+                        </label>
+                        <label>Description
+                            <input name="description" placeholder="optional">
+                        </label>
+                    </div>
+                    <label class="checkbox-row">
+                        <input type="checkbox" name="load_now" value="1">
+                        <span>Load this schema into the working area after import</span>
+                    </label>
+                    <button class="secondary" type="submit">Import schema</button>
+                </form>
+            </section>
+        </div>
+
+        {% if snapshots %}
+        <div class="snapshot-list">
+            {% for snapshot in snapshots %}
+            <article class="snapshot-card">
+                <div class="snapshot-main">
+                    <div class="snapshot-title-row">
+                        <h3>{{ snapshot.name }}</h3>
+                        <span class="snapshot-date">{{ snapshot.updated_at[:16].replace('T', ' ') }}</span>
+                    </div>
+                    {% if snapshot.description %}
+                    <p>{{ snapshot.description }}</p>
+                    {% endif %}
+                    <div class="snapshot-stats">
+                        <span><strong>{{ snapshot.table_count }}</strong> tables</span>
+                        <span><strong>{{ snapshot.field_count }}</strong> fields</span>
+                        <span><strong>{{ snapshot.relationship_count }}</strong> links</span>
+                    </div>
+                </div>
+                <div class="snapshot-buttons">
+                    <form method="post" action="{{ url_for('load_schema_snapshot', snapshot_id=snapshot.id) }}" onsubmit="return confirm('Replace the current working schema with {{ snapshot.name|e }}?')">
+                        <button class="primary small" type="submit">Load</button>
+                    </form>
+                    <a class="secondary button-link small" href="{{ url_for('export_schema_snapshot', snapshot_id=snapshot.id) }}">Export</a>
+                    <form method="post" action="{{ url_for('delete_schema_snapshot', snapshot_id=snapshot.id) }}" onsubmit="return confirm('Delete saved schema {{ snapshot.name|e }}?')">
+                        <button class="danger small" type="submit">Delete</button>
+                    </form>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-library">No named schema snapshots saved yet.</div>
+        {% endif %}
+    </section>
+
+
     <section class="panel">
         <div class="panel-head">
             <div>
