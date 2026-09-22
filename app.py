@@ -2040,6 +2040,229 @@ def api_llm_models():
         return jsonify({"ok": False, "error": str(exc), "models": []}), 502
 
 
+
+@app.post("/api/markdown/render")
+def api_render_markdown():
+    body = request.get_json(silent=True) or {}
+    content = str(body.get("content") or "")
+    return jsonify({"ok": True, "html": str(render_markdown_html(content))})
+
+
+@app.get("/knowledge/<int:item_id>")
+def knowledge_document(item_id):
+    conn = db()
+    item = conn.execute(
+        """
+        SELECT id, title, category, content, created_at, updated_at
+        FROM qb_knowledge
+        WHERE id = ?
+        """,
+        (item_id,),
+    ).fetchone()
+    conn.close()
+    if not item:
+        return Response("Knowledge document not found.", status=404, mimetype="text/plain")
+    return render_template(
+        "knowledge_document.html",
+        item=dict(item),
+        rendered=render_markdown_html(item["content"]),
+    )
+
+
+@app.post("/knowledge/<int:item_id>/edit")
+def edit_knowledge_document(item_id):
+    title = (request.form.get("title") or "").strip()
+    category = (request.form.get("category") or "general").strip()
+    content = request.form.get("content") or ""
+    if not title or not content.strip():
+        flash("Knowledge title and Markdown content are required.", "error")
+        return redirect(url_for("knowledge_document", item_id=item_id))
+
+    conn = db()
+    item = conn.execute("SELECT id FROM qb_knowledge WHERE id = ?", (item_id,)).fetchone()
+    if not item:
+        conn.close()
+        return Response("Knowledge document not found.", status=404, mimetype="text/plain")
+    conn.execute(
+        """
+        UPDATE qb_knowledge
+        SET title = ?, category = ?, content = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (title, category, content, now_iso(), item_id),
+    )
+    conn.commit()
+    conn.close()
+    flash("Knowledge document updated.", "success")
+    return redirect(url_for("knowledge_document", item_id=item_id))
+
+
+@app.route("/ai-skills")
+def ai_skills():
+    conn = db()
+    skills = [dict(row) for row in ai_skill_rows(conn)]
+    proposal_rows = conn.execute(
+        """
+        SELECT id, title, summary, skill_key, model, operations_json, status, created_at, reviewed_at
+        FROM qb_schema_proposals
+        ORDER BY id DESC
+        LIMIT 100
+        """
+    ).fetchall()
+    proposals = []
+    for row in proposal_rows:
+        try:
+            operations = json.loads(row["operations_json"])
+        except Exception:
+            operations = []
+        checked = validate_schema_operations(conn, operations) if row["status"] == "proposed" else []
+        proposals.append(
+            {
+                **dict(row),
+                "operations": operations,
+                "checked": checked,
+                "valid_now": all(item["valid"] for item in checked) if checked else row["status"] != "proposed",
+            }
+        )
+    table_count = conn.execute("SELECT COUNT(*) n FROM qb_tables").fetchone()["n"]
+    field_count = conn.execute("SELECT COUNT(*) n FROM qb_columns").fetchone()["n"]
+    conn.close()
+    return render_template(
+        "ai_skills.html",
+        skills=skills,
+        proposals=proposals,
+        table_count=table_count,
+        field_count=field_count,
+    )
+
+
+@app.post("/ai-skills/<int:skill_id>/toggle")
+def toggle_ai_skill(skill_id):
+    conn = db()
+    row = conn.execute("SELECT enabled, name FROM qb_ai_skills WHERE id = ?", (skill_id,)).fetchone()
+    if not row:
+        conn.close()
+        return Response("AI skill not found.", status=404, mimetype="text/plain")
+    enabled = 0 if row["enabled"] else 1
+    conn.execute(
+        "UPDATE qb_ai_skills SET enabled = ?, updated_at = ? WHERE id = ?",
+        (enabled, now_iso(), skill_id),
+    )
+    conn.commit()
+    conn.close()
+    flash(f'{row["name"]} {"enabled" if enabled else "disabled"}.', "success")
+    return redirect(url_for("ai_skills"))
+
+
+@app.post("/ai-skills/<int:skill_id>/update")
+def update_ai_skill(skill_id):
+    instructions = (request.form.get("instructions") or "").strip()
+    if not instructions:
+        flash("Skill instructions cannot be empty.", "error")
+        return redirect(url_for("ai_skills"))
+    conn = db()
+    row = conn.execute("SELECT id, name FROM qb_ai_skills WHERE id = ?", (skill_id,)).fetchone()
+    if not row:
+        conn.close()
+        return Response("AI skill not found.", status=404, mimetype="text/plain")
+    conn.execute(
+        "UPDATE qb_ai_skills SET instructions = ?, updated_at = ? WHERE id = ?",
+        (instructions, now_iso(), skill_id),
+    )
+    conn.commit()
+    conn.close()
+    flash(f'{row["name"]} instructions updated.', "success")
+    return redirect(url_for("ai_skills"))
+
+
+@app.post("/schema/proposals/create")
+def create_schema_proposal():
+    request_text = (request.form.get("request_text") or "").strip()
+    selected_skills = request.form.getlist("skills")
+    conn = db()
+    try:
+        proposal_id, valid_count, invalid_count = create_ai_schema_proposal(
+            conn,
+            request_text or "Review the current schema and knowledge and propose useful improvements.",
+            selected_skills,
+        )
+        conn.commit()
+        flash(
+            f"AI schema proposal #{proposal_id} created with {valid_count} valid operation(s)"
+            + (f"; {invalid_count} invalid AI operation(s) were discarded." if invalid_count else "."),
+            "success",
+        )
+    except Exception as exc:
+        conn.rollback()
+        flash(f"AI schema proposal failed: {exc}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("ai_skills") + "#proposals")
+
+
+@app.post("/schema/proposals/<int:proposal_id>/apply")
+def apply_schema_proposal(proposal_id):
+    conn = db()
+    try:
+        proposal = conn.execute(
+            "SELECT * FROM qb_schema_proposals WHERE id = ?",
+            (proposal_id,),
+        ).fetchone()
+        if not proposal:
+            raise ValueError("Schema proposal was not found.")
+        if proposal["status"] != "proposed":
+            raise ValueError(f"Schema proposal is already {proposal['status']}.")
+
+        operations = json.loads(proposal["operations_json"])
+        applied = apply_schema_operations(conn, operations)
+        conn.execute(
+            """
+            UPDATE qb_schema_proposals
+            SET status = 'applied', reviewed_at = ?
+            WHERE id = ?
+            """,
+            (now_iso(), proposal_id),
+        )
+        conn.commit()
+        flash(
+            f"Applied schema proposal #{proposal_id}: {len(applied)} operation(s).",
+            "success",
+        )
+    except Exception as exc:
+        conn.rollback()
+        flash(f"Could not apply schema proposal: {exc}", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("ai_skills") + "#proposals")
+
+
+@app.post("/schema/proposals/<int:proposal_id>/reject")
+def reject_schema_proposal(proposal_id):
+    conn = db()
+    proposal = conn.execute(
+        "SELECT status FROM qb_schema_proposals WHERE id = ?",
+        (proposal_id,),
+    ).fetchone()
+    if not proposal:
+        conn.close()
+        return Response("Schema proposal not found.", status=404, mimetype="text/plain")
+    if proposal["status"] == "proposed":
+        conn.execute(
+            """
+            UPDATE qb_schema_proposals
+            SET status = 'rejected', reviewed_at = ?
+            WHERE id = ?
+            """,
+            (now_iso(), proposal_id),
+        )
+        conn.commit()
+        flash(f"Schema proposal #{proposal_id} rejected.", "success")
+    else:
+        flash(f"Schema proposal is already {proposal['status']}.", "error")
+    conn.close()
+    return redirect(url_for("ai_skills") + "#proposals")
+
+
 @app.route("/knowledge")
 def knowledge():
     conn = db()
@@ -2166,10 +2389,15 @@ def guess_relationships():
         if not table_count or not field_count:
             raise ValueError("Capture a schema with fields before asking the LLM to infer links.")
 
-        stored, skipped, _ = llm_guess_relationships(conn)
+        proposal_id, valid_count, invalid_count = create_ai_schema_proposal(
+            conn,
+            "Analyse the current schema and knowledge. Propose the most useful missing equality relationships only. Do not propose other structural changes.",
+            ["relationship-analysis", "knowledge-grounded-schema"],
+        )
         conn.commit()
         flash(
-            f"LLM relationship pass complete: {stored} stored/updated, {skipped} skipped.",
+            f"Relationship proposal #{proposal_id} created with {valid_count} link operation(s)"
+            + (f"; {invalid_count} invalid suggestion(s) were discarded." if invalid_count else "."),
             "success",
         )
     except Exception as exc:
@@ -2177,7 +2405,7 @@ def guess_relationships():
         flash(f"LLM link analysis failed: {exc}", "error")
     finally:
         conn.close()
-    return redirect(url_for("knowledge") + "#relationships")
+    return redirect(url_for("ai_skills") + "#proposals")
 
 
 @app.route("/chat")
