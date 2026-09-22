@@ -1,3 +1,4 @@
 Flask>=3.1,<4
 requests>=2.32,<3
 Markdown>=3.7,<4
+sqlglot>=27,<29
