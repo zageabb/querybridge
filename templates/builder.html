@@ -34,9 +34,13 @@
             <div class="sticky-title">
                 <h2>Tables & fields</h2>
                 <p>Drag fields into the query.</p>
+                <div class="table-toggle-actions">
+                    <button id="expand-all-tables" class="secondary small" type="button">Expand all</button>
+                    <button id="collapse-all-tables" class="secondary small" type="button">Collapse all</button>
+                </div>
             </div>
             {% for table in tables %}
-            <details class="schema-table" open>
+            <details class="schema-table">
                 <summary>{{ table.schema_name or '' }}{% if table.schema_name %}.{% endif %}{{ table.table_name }}</summary>
                 {% for col in table.columns %}
                 <div class="field"
@@ -227,6 +231,25 @@ if (clearButton) {
         selected.splice(0, selected.length);
         renderFields();
         refreshSql();
+    });
+}
+
+const expandAllTables = document.getElementById("expand-all-tables");
+const collapseAllTables = document.getElementById("collapse-all-tables");
+
+if (expandAllTables) {
+    expandAllTables.addEventListener("click", function () {
+        document.querySelectorAll(".schema-table").forEach(function (table) {
+            table.open = true;
+        });
+    });
+}
+
+if (collapseAllTables) {
+    collapseAllTables.addEventListener("click", function () {
+        document.querySelectorAll(".schema-table").forEach(function (table) {
+            table.open = false;
+        });
     });
 }
 
