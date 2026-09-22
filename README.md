@@ -201,3 +201,36 @@ The LLM can use joins, filters, CTEs, grouping and aggregates across those local
 The sandbox has no access to QueryBridge chat history, LLM settings or other application tables, and is switched to SQLite `query_only` mode before the AI can query it.
 
 Other enabled AI skills are also included in Schema Chat context, so relationship analysis, field-type review, schema curation and custom skills can reason over the same locally stored schema.
+
+
+## Import Databricks SQL into Query Builder
+
+The Query Builder supports round-trip import of existing Databricks SELECT statements.
+
+Use **Import SQL** to paste a query from Databricks. QueryBridge parses it with the Databricks SQL dialect and attempts to map the query back to the locally stored schema.
+
+The importer currently reconstructs or preserves:
+
+- SELECT fields
+- field aliases
+- raw expressions such as CASE or aggregates
+- FROM table
+- table aliases
+- JOIN clauses
+- WHERE
+- GROUP BY
+- HAVING
+- QUALIFY
+- ORDER BY
+- LIMIT
+- OFFSET
+- DISTINCT
+- WITH / CTE prefix where it can be preserved safely
+
+Fields that match the stored schema are loaded as normal Query Builder fields and highlighted in the schema browser. Expressions that cannot be reduced to a single stored field are preserved as expression items rather than discarded.
+
+After import, fields can be added or removed in the normal visual builder. If a newly selected field comes from a table that was not part of the imported query, QueryBridge uses stored relationships to add an appropriate JOIN where possible; otherwise it uses a CROSS JOIN and shows a warning.
+
+If the imported query contains equality JOINs that are not already known to QueryBridge, the builder offers **Create relationship proposal from imported JOINs**. These links go to the AI Skills proposal queue for explicit review before they become trusted schema relationships.
+
+The import process uses only the locally stored schema for matching. It does not connect to Databricks.
