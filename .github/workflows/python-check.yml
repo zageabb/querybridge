@@ -38,4 +38,16 @@ jobs:
           assert "/ai-skills" in rules
           assert "/api/markdown/render" in rules
           assert "/knowledge/<int:item_id>" in rules
+          conn = app.db()
+          local_result = app.execute_local_schema_select(conn, "SELECT COUNT(*) AS n FROM schema_tables")
+          assert local_result["columns"] == ["n"]
+          assert local_result["row_count"] == 1
+          try:
+              app.execute_local_schema_select(conn, "UPDATE schema_tables SET table_name='x'")
+              raise AssertionError("write query should have been rejected")
+          except ValueError:
+              pass
+          skill = conn.execute("SELECT 1 FROM qb_ai_skills WHERE skill_key='local-schema-sql-analysis' AND enabled=1").fetchone()
+          assert skill is not None
+          conn.close()
           PY
