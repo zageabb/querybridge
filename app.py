@@ -3452,8 +3452,6 @@ def reset_metadata():
     return redirect(url_for("index"))
 
 
-@app.route("/builder")
-
 def match_local_table(conn, table_name, schema_name=None, catalog=None):
     if not table_name:
         return None
@@ -3962,6 +3960,7 @@ def build_sql_from_imported_state(conn, fields, imported_state):
     return "\n".join(sql_lines), warnings
 
 
+@app.route("/builder")
 def builder():
     conn = db()
     tables = conn.execute(
