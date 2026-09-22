@@ -30,6 +30,11 @@ jobs:
           assert "/chat" in rules
           assert "/api/chat" in rules
           assert "/schema/proposals/create" in rules
+          assert app.normalise_ai_operation({"action":"add_link"})["action"] == "add_relationship"
+          assert app.normalise_ai_operation({"operation":"add_column","table":"T","column":"C","type":"STRING"})["action"] == "add_field"
+          nested = app.normalise_ai_operation({"add_relationship":{"left_table":"A","left_column":"ID","right_table":"B","right_column":"AID"}})
+          assert nested["action"] == "add_relationship"
+          assert nested["left_table"] == "A"
           assert "/ai-skills" in rules
           assert "/api/markdown/render" in rules
           assert "/knowledge/<int:item_id>" in rules
