@@ -3754,6 +3754,92 @@ def parse_databricks_query_to_builder(conn, raw_sql):
 
     matched_sources = [item for item in sources if item.get("table_id")]
 
+    def column_ref_payload(column):
+        if not isinstance(column, exp.Column):
+            return None
+        qualifier = (column.table or "").casefold()
+        source = alias_map.get(qualifier) if qualifier else None
+        if source is None and len(matched_sources) == 1:
+            source = matched_sources[0]
+        return {
+            "alias": column.table or (source.get("alias") if source else None),
+            "column": column.name,
+            "table_id": source.get("table_id") if source else None,
+            "table_name": source.get("table_name") if source else None,
+        }
+
+    structured_joins = []
+    for join_index, join in enumerate(select_expr.args.get("joins") or [], start=1):
+        target_alias = None
+        if isinstance(join.this, exp.Table):
+            target_alias = join.this.alias or join.this.name
+        else:
+            target_alias = getattr(join.this, "alias", None) or None
+
+        join_columns = []
+        on_expr = join.args.get("on")
+        if on_expr is not None:
+            for column in on_expr.find_all(exp.Column):
+                payload = column_ref_payload(column)
+                if payload:
+                    join_columns.append(payload)
+
+        pairs = []
+        if on_expr is not None:
+            for eq in on_expr.find_all(exp.EQ):
+                if isinstance(eq.left, exp.Column) and isinstance(eq.right, exp.Column):
+                    left_payload = column_ref_payload(eq.left)
+                    right_payload = column_ref_payload(eq.right)
+                    if left_payload and right_payload:
+                        pairs.append(
+                            {
+                                "left": left_payload,
+                                "right": right_payload,
+                                "sql": eq.sql(dialect="databricks"),
+                            }
+                        )
+
+        join_type_parts = [
+            str(join.args.get("side") or "").upper(),
+            str(join.args.get("kind") or "").upper(),
+        ]
+        join_type = " ".join(part for part in join_type_parts if part).strip()
+        if not join_type:
+            join_type = "INNER"
+
+        structured_joins.append(
+            {
+                "index": join_index,
+                "join_type": join_type,
+                "target_alias": target_alias,
+                "target_table_id": alias_map.get((target_alias or "").casefold(), {}).get("table_id"),
+                "on_sql": on_expr.sql(dialect="databricks") if on_expr is not None else None,
+                "columns": join_columns,
+                "pairs": pairs,
+            }
+        )
+
+    def split_and_predicates(expression):
+        if isinstance(expression, exp.And):
+            return split_and_predicates(expression.left) + split_and_predicates(expression.right)
+        return [expression]
+
+    criteria = []
+    where_expr = select_expr.args.get("where")
+    if where_expr is not None and where_expr.this is not None:
+        for predicate in split_and_predicates(where_expr.this):
+            refs = []
+            for column in predicate.find_all(exp.Column):
+                payload = column_ref_payload(column)
+                if payload:
+                    refs.append(payload)
+            criteria.append(
+                {
+                    "sql": predicate.sql(dialect="databricks"),
+                    "columns": refs,
+                }
+            )
+
     for projection in select_expr.expressions:
         output_alias = projection.alias if isinstance(projection, exp.Alias) else None
         core = projection.this if isinstance(projection, exp.Alias) else projection
@@ -3821,6 +3907,8 @@ def parse_databricks_query_to_builder(conn, raw_sql):
         "with_sql": with_sql,
         "distinct": bool(select_expr.args.get("distinct")),
         "sources": sources,
+        "joins": structured_joins,
+        "criteria": criteria,
         "modifiers": modifiers,
         "warnings": warnings,
     }
