@@ -69,6 +69,24 @@
         </div>
     </section>
 
+    <section class="panel">
+        <h2>Create custom AI skill</h2>
+        <form method="post" action="{{ url_for('create_ai_skill') }}">
+            <div class="two-col">
+                <label>Name
+                    <input name="name" placeholder="e.g. SAP procurement key analyst" required>
+                </label>
+                <label>Description
+                    <input name="description" placeholder="What this skill is for">
+                </label>
+            </div>
+            <label>Instructions
+                <textarea name="instructions" rows="6" placeholder="Tell the LLM how to reason, what evidence to prefer, and what it should avoid." required></textarea>
+            </label>
+            <button class="primary" type="submit">Create skill</button>
+        </form>
+    </section>
+
     <div class="skill-list">
         {% for skill in skills %}
         <details class="skill-card">
@@ -87,9 +105,16 @@
                     </label>
                     <button class="secondary" type="submit">Save instructions</button>
                 </form>
-                <form method="post" action="{{ url_for('toggle_ai_skill', skill_id=skill.id) }}">
-                    <button class="{% if skill.enabled %}danger{% else %}primary{% endif %}" type="submit">{{ 'Disable' if skill.enabled else 'Enable' }} skill</button>
-                </form>
+                <div class="skill-actions">
+                    <form method="post" action="{{ url_for('toggle_ai_skill', skill_id=skill.id) }}">
+                        <button class="{% if skill.enabled %}danger{% else %}primary{% endif %}" type="submit">{{ 'Disable' if skill.enabled else 'Enable' }} skill</button>
+                    </form>
+                    {% if not skill.builtin %}
+                    <form method="post" action="{{ url_for('delete_ai_skill', skill_id=skill.id) }}" onsubmit="return confirm('Delete this custom AI skill?')">
+                        <button class="danger" type="submit">Delete custom skill</button>
+                    </form>
+                    {% endif %}
+                </div>
             </div>
         </details>
         {% endfor %}
