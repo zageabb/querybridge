@@ -53,7 +53,7 @@
             {% for message in messages %}
             <div class="chat-message {{ message.role }}">
                 <div class="chat-role">{{ "You" if message.role == "user" else "QueryBridge" }}</div>
-                <div class="chat-text">{{ message.content }}</div>
+                <div class="chat-text">{% if message.role == 'assistant' %}{{ message.rendered }}{% else %}{{ message.content }}{% endif %}</div>
             </div>
             {% endfor %}
         </div>
@@ -71,7 +71,7 @@ const input = document.getElementById("chat-input");
 const messages = document.getElementById("chat-messages");
 const sendButton = document.getElementById("send-button");
 
-function appendMessage(role, text) {
+function appendMessage(role, text, html) {
     const welcome = messages.querySelector(".chat-welcome");
     if (welcome) welcome.remove();
 
@@ -84,7 +84,12 @@ function appendMessage(role, text) {
 
     const textBox = document.createElement("div");
     textBox.className = "chat-text";
-    textBox.textContent = text;
+    if (role === "assistant" && html) {
+        textBox.innerHTML = html;
+        textBox.classList.add("markdown-document");
+    } else {
+        textBox.textContent = text;
+    }
 
     row.appendChild(roleBox);
     row.appendChild(textBox);
@@ -114,7 +119,9 @@ form.addEventListener("submit", async function (event) {
         });
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "Chat request failed");
-        pending.querySelector(".chat-text").textContent = data.answer;
+        const box = pending.querySelector(".chat-text");
+        box.innerHTML = data.html || "";
+        box.classList.add("markdown-document");
     } catch (error) {
         pending.querySelector(".chat-text").textContent = "Error: " + error.message;
         pending.classList.add("error-message");
