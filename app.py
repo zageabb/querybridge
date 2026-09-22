@@ -1462,19 +1462,13 @@ def validate_local_schema_select(sql):
     if not sql:
         raise ValueError("Local schema SELECT is empty.")
 
-    # sqlite3.execute already rejects multiple statements; strip one harmless trailing semicolon.
+    # sqlite3.execute rejects multiple statements. The analysis database is isolated,
+    # contains no application secrets and is switched to PRAGMA query_only before use.
     if sql.endswith(";"):
         sql = sql[:-1].rstrip()
 
     if not re.match(r"(?is)^(select|with)\b", sql):
         raise ValueError("Local schema analysis only permits SELECT statements or SELECT CTEs.")
-
-    forbidden = re.compile(
-        r"(?is)\b(insert|update|delete|replace|drop|alter|create|attach|detach|pragma|vacuum|reindex|"
-        r"begin|commit|rollback|savepoint|release|load_extension)\b"
-    )
-    if forbidden.search(sql):
-        raise ValueError("Only read-only SELECT analysis is permitted.")
 
     return sql
 
@@ -3302,11 +3296,47 @@ def api_schema_chat():
     conn = db()
     try:
         context = schema_context_text(conn, include_relationships=True)
+        active_skills = ai_skill_rows(conn, enabled_only=True)
+        skills_context = ai_skill_context(active_skills)
+
         system = """You are QueryBridge, a local schema assistant.
-Use only the supplied QueryBridge schema, relationships and knowledge for schema-specific claims.
-Help the user understand tables, fields, likely joins, and draft Databricks SQL.
-Do not invent tables or columns. If information is missing, say what metadata or knowledge would resolve it.
-When you write SQL, prefer explicit JOIN clauses and fully qualified names when available."""
+You analyse the schema CAPTURED LOCALLY inside QueryBridge. You do not connect to Databricks and you do not claim to have queried live Databricks data.
+
+Use the supplied QueryBridge schema, relationships, Markdown knowledge and enabled AI skills.
+You have one read-only analysis tool named local_schema_select. It runs SELECT statements only against an isolated in-memory copy of QueryBridge's local schema metadata.
+
+Use local_schema_select whenever querying the local metadata would improve accuracy—for example:
+- find all fields with names containing supplier, project, PO, PR, WBS or dates;
+- compare data types across tables;
+- count tables or fields;
+- find repeated field names;
+- inspect inferred/AI/manual relationships;
+- search knowledge text;
+- identify tables with no relationships;
+- investigate likely join candidates.
+
+You may run several SELECT statements before answering.
+
+For every turn, return JSON only in one of these forms.
+
+To run a local SELECT:
+{
+  "kind": "tool",
+  "tool": "local_schema_select",
+  "sql": "SELECT ...",
+  "purpose": "short reason for this query"
+}
+
+To answer:
+{
+  "kind": "answer",
+  "answer": "Markdown answer for the user"
+}
+
+Never request INSERT, UPDATE, DELETE, DDL or changes through local_schema_select.
+Do not invent tables or fields. If evidence is missing, say so.
+When drafting Databricks SQL for the user, clearly distinguish that draft SQL from the local SQLite analysis queries used internally.
+"""
 
         history = conn.execute(
             """
@@ -3319,7 +3349,18 @@ When you write SQL, prefer explicit JOIN clauses and fully qualified names when 
         history = list(reversed(history))
 
         messages = [
-            {"role": "system", "content": system + "\n\n" + context},
+            {
+                "role": "system",
+                "content": (
+                    system
+                    + "\n\nENABLED AI SKILLS\n"
+                    + skills_context
+                    + "\n\n"
+                    + local_schema_sql_reference()
+                    + "\n\nCAPTURED SCHEMA / RELATIONSHIP / KNOWLEDGE CONTEXT\n"
+                    + context
+                ),
+            },
             *[
                 {"role": row["role"], "content": row["content"]}
                 for row in history
@@ -3335,7 +3376,9 @@ When you write SQL, prefer explicit JOIN clauses and fully qualified names when 
             """,
             (question, now_iso()),
         )
-        answer = call_llm(conn, messages)
+
+        answer, tool_runs = run_schema_chat_agent(conn, messages, max_tool_calls=6)
+
         conn.execute(
             """
             INSERT INTO qb_chat_messages(role, content, created_at)
@@ -3344,10 +3387,12 @@ When you write SQL, prefer explicit JOIN clauses and fully qualified names when 
             (answer, now_iso()),
         )
         conn.commit()
+
         return jsonify({
             "ok": True,
             "answer": answer,
             "html": str(render_markdown_html(answer)),
+            "tool_runs": tool_runs,
         })
     except Exception as exc:
         conn.rollback()
