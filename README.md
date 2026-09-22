@@ -41,3 +41,40 @@ Open http://localhost:5086
 ## Storage
 
 Local metadata is stored in `instance/querybridge.db`. No Databricks credentials are required because metadata is transferred manually by copy/paste.
+
+
+## Named schema snapshots
+
+Captured metadata can be saved as a named schema snapshot from the Metadata page.
+
+A snapshot contains:
+
+- catalogs, schemas and tables
+- fields and Databricks data types
+- field comments and nullability where available
+- captured/inferred relationships
+- enough metadata to reopen the schema later without reconnecting to Databricks
+
+Snapshots are stored in the local SQLite database and are not removed when the working metadata is cleared.
+
+### Save
+
+Use **Save current schema** and give the current working schema a name. Saving again with the same name updates the saved snapshot.
+
+### Load
+
+Use **Load** on a saved snapshot to replace the current working metadata with that saved schema. The Query Builder then works against the restored schema.
+
+### Export
+
+Use **Export** to create a portable file named like:
+
+```text
+SCM_Production.querybridge.json
+```
+
+The export uses table/schema/column identities rather than local SQLite row IDs, so relationships can be rebuilt on another QueryBridge installation.
+
+### Import
+
+Use **Import schema** to add an exported QueryBridge JSON file to the local schema library. You can optionally load it immediately into the working area.
