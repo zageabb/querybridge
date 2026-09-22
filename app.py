@@ -8,6 +8,8 @@ import sqlite3
 import time
 import requests
 import markdown as markdown_lib
+import sqlglot
+from sqlglot import exp
 from markupsafe import Markup, escape
 from datetime import datetime, timezone
 from pathlib import Path
@@ -3451,6 +3453,500 @@ def reset_metadata():
 
 
 @app.route("/builder")
+
+def match_local_table(conn, table_name, schema_name=None, catalog=None):
+    if not table_name:
+        return None
+    sql = """
+        SELECT *
+        FROM qb_tables
+        WHERE lower(table_name) = lower(?)
+    """
+    params = [table_name]
+    if schema_name:
+        sql += " AND lower(COALESCE(schema_name,'')) = lower(?)"
+        params.append(schema_name)
+    if catalog:
+        sql += " AND lower(COALESCE(catalog,'')) = lower(?)"
+        params.append(catalog)
+    sql += " ORDER BY id LIMIT 1"
+    return conn.execute(sql, params).fetchone()
+
+
+def local_field_exists(conn, table_id, column_name):
+    if not table_id or not column_name:
+        return None
+    return conn.execute(
+        """
+        SELECT id, column_name, data_type
+        FROM qb_columns
+        WHERE table_id = ? AND lower(column_name) = lower(?)
+        LIMIT 1
+        """,
+        (table_id, column_name),
+    ).fetchone()
+
+
+def imported_join_relationship_candidates(conn, select_expr, alias_map):
+    candidates = []
+    seen = set()
+
+    for join in select_expr.args.get("joins") or []:
+        on_expr = join.args.get("on")
+        if on_expr is None:
+            continue
+
+        for eq in on_expr.find_all(exp.EQ):
+            left = eq.left
+            right = eq.right
+            if not isinstance(left, exp.Column) or not isinstance(right, exp.Column):
+                continue
+
+            left_source = alias_map.get((left.table or "").casefold())
+            right_source = alias_map.get((right.table or "").casefold())
+            if not left_source or not right_source:
+                continue
+            if not left_source.get("table_id") or not right_source.get("table_id"):
+                continue
+            if left_source["table_id"] == right_source["table_id"]:
+                continue
+
+            left_field = local_field_exists(conn, left_source["table_id"], left.name)
+            right_field = local_field_exists(conn, right_source["table_id"], right.name)
+            if not left_field or not right_field:
+                continue
+
+            pair = tuple(sorted((left_field["id"], right_field["id"])))
+            if pair in seen:
+                continue
+            seen.add(pair)
+
+            existing = conn.execute(
+                """
+                SELECT id, source, confidence
+                FROM qb_relationships
+                WHERE (left_column_id = ? AND right_column_id = ?)
+                   OR (left_column_id = ? AND right_column_id = ?)
+                LIMIT 1
+                """,
+                (
+                    left_field["id"],
+                    right_field["id"],
+                    right_field["id"],
+                    left_field["id"],
+                ),
+            ).fetchone()
+
+            if existing:
+                continue
+
+            candidates.append(
+                {
+                    "left_table": left_source["table_name"],
+                    "left_schema": left_source.get("schema_name"),
+                    "left_catalog": left_source.get("catalog"),
+                    "left_column": left_field["column_name"],
+                    "right_table": right_source["table_name"],
+                    "right_schema": right_source.get("schema_name"),
+                    "right_catalog": right_source.get("catalog"),
+                    "right_column": right_field["column_name"],
+                    "confidence": 1.0,
+                    "reason": "Observed equality JOIN in imported Databricks SQL.",
+                }
+            )
+
+    return candidates
+
+
+def parse_databricks_query_to_builder(conn, raw_sql):
+    raw_sql = (raw_sql or "").strip()
+    if not raw_sql:
+        raise ValueError("Paste a Databricks SELECT statement first.")
+
+    try:
+        tree = sqlglot.parse_one(raw_sql, read="databricks")
+    except Exception as exc:
+        raise ValueError(f"Could not parse Databricks SQL: {exc}") from exc
+
+    select_expr = tree if isinstance(tree, exp.Select) else tree.find(exp.Select)
+    if select_expr is None:
+        raise ValueError("QueryBridge can currently import SELECT queries only.")
+
+    warnings = []
+    sources = []
+    alias_map = {}
+
+    def source_record(source_expr, role, join_sql=None):
+        table_id = None
+        catalog = None
+        schema_name = None
+        table_name = None
+        alias = None
+        matched = False
+        source_sql = source_expr.sql(dialect="databricks")
+
+        if isinstance(source_expr, exp.Table):
+            table_name = source_expr.name
+            schema_name = source_expr.db or None
+            catalog = source_expr.catalog or None
+            alias = source_expr.alias or table_name
+            row = match_local_table(conn, table_name, schema_name, catalog)
+            if row is None and (schema_name or catalog):
+                row = match_local_table(conn, table_name)
+            if row:
+                table_id = row["id"]
+                catalog = row["catalog"]
+                schema_name = row["schema_name"]
+                table_name = row["table_name"]
+                matched = True
+        else:
+            alias = getattr(source_expr, "alias", None) or None
+
+        record = {
+            "role": role,
+            "table_id": table_id,
+            "catalog": catalog,
+            "schema_name": schema_name,
+            "table_name": table_name,
+            "alias": alias,
+            "matched": matched,
+            "source_sql": source_sql,
+        }
+        if join_sql is not None:
+            record["join_sql"] = join_sql
+
+        if alias:
+            alias_map[str(alias).casefold()] = record
+        if table_name:
+            alias_map[str(table_name).casefold()] = record
+        return record
+
+    from_expr = select_expr.args.get("from_")
+    if from_expr and from_expr.this is not None:
+        base = source_record(from_expr.this, "from")
+        sources.append(base)
+        if not base["matched"]:
+            warnings.append(
+                f"FROM source '{base['source_sql']}' is not matched to the stored local schema."
+            )
+    else:
+        warnings.append("The imported SELECT has no simple FROM source.")
+
+    for join in select_expr.args.get("joins") or []:
+        join_source = join.this
+        record = source_record(
+            join_source,
+            "join",
+            join_sql=join.sql(dialect="databricks"),
+        )
+        sources.append(record)
+        if not record["matched"]:
+            warnings.append(
+                f"JOIN source '{record['source_sql']}' is not matched to the stored local schema."
+            )
+
+    fields = []
+    unmatched_fields = []
+
+    matched_sources = [item for item in sources if item.get("table_id")]
+
+    for projection in select_expr.expressions:
+        output_alias = projection.alias if isinstance(projection, exp.Alias) else None
+        core = projection.this if isinstance(projection, exp.Alias) else projection
+
+        if isinstance(core, exp.Column) and not isinstance(core.this, exp.Star):
+            qualifier = (core.table or "").casefold()
+            source = alias_map.get(qualifier) if qualifier else None
+
+            if source is None and len(matched_sources) == 1:
+                source = matched_sources[0]
+            elif source is None and not qualifier:
+                possible = [
+                    item
+                    for item in matched_sources
+                    if local_field_exists(conn, item["table_id"], core.name)
+                ]
+                if len(possible) == 1:
+                    source = possible[0]
+
+            if source and source.get("table_id"):
+                field = local_field_exists(conn, source["table_id"], core.name)
+                if field:
+                    fields.append(
+                        {
+                            "kind": "field",
+                            "table_id": source["table_id"],
+                            "column_name": field["column_name"],
+                            "source_alias": source.get("alias"),
+                            "output_alias": output_alias,
+                            "imported": True,
+                        }
+                    )
+                    continue
+
+            unmatched_fields.append(projection.sql(dialect="databricks"))
+
+        fields.append(
+            {
+                "kind": "expression",
+                "sql": projection.sql(dialect="databricks"),
+                "label": output_alias or projection.alias_or_name or projection.sql(dialect="databricks"),
+                "imported": True,
+            }
+        )
+
+    modifiers = {}
+    for key in ("where", "group", "having", "qualify", "order", "limit", "offset"):
+        value = select_expr.args.get(key)
+        modifiers[key] = value.sql(dialect="databricks") if value is not None else None
+
+    with_expr = select_expr.args.get("with_")
+    with_sql = with_expr.sql(dialect="databricks") if with_expr is not None else None
+
+    if unmatched_fields:
+        warnings.append(
+            f"{len(unmatched_fields)} selected expression(s) could not be mapped to a stored field and were preserved as raw expressions."
+        )
+
+    relationship_candidates = imported_join_relationship_candidates(
+        conn, select_expr, alias_map
+    )
+
+    state = {
+        "raw_sql": raw_sql,
+        "with_sql": with_sql,
+        "distinct": bool(select_expr.args.get("distinct")),
+        "sources": sources,
+        "modifiers": modifiers,
+        "warnings": warnings,
+    }
+
+    return {
+        "fields": fields,
+        "state": state,
+        "warnings": warnings,
+        "unmatched_fields": unmatched_fields,
+        "relationship_candidates": relationship_candidates,
+    }
+
+
+def create_imported_join_proposal(conn, candidates):
+    operations = []
+    for item in candidates or []:
+        if not isinstance(item, dict):
+            continue
+        operations.append(
+            {
+                "action": "add_relationship",
+                "left_table": item.get("left_table"),
+                "left_schema": item.get("left_schema"),
+                "left_catalog": item.get("left_catalog"),
+                "left_column": item.get("left_column"),
+                "right_table": item.get("right_table"),
+                "right_schema": item.get("right_schema"),
+                "right_catalog": item.get("right_catalog"),
+                "right_column": item.get("right_column"),
+                "confidence": 1.0,
+                "reason": item.get("reason") or "Observed JOIN in imported SQL.",
+            }
+        )
+
+    checked = validate_schema_operations(conn, operations)
+    valid = [item["operation"] for item in checked if item["valid"]]
+    if not valid:
+        raise ValueError("No new valid relationships were found in the imported SQL.")
+
+    settings = get_llm_settings(conn)
+    cursor = conn.execute(
+        """
+        INSERT INTO qb_schema_proposals
+        (title, summary, skill_key, model, operations_json, status, created_at)
+        VALUES (?, ?, ?, ?, ?, 'proposed', ?)
+        """,
+        (
+            "Relationships observed in imported SQL",
+            "These links were observed directly in a pasted Databricks SELECT and are proposed for review before becoming trusted QueryBridge relationships.",
+            "imported-sql",
+            settings.get("model"),
+            json.dumps(valid, ensure_ascii=False),
+            now_iso(),
+        ),
+    )
+    return cursor.lastrowid, len(valid)
+
+
+def build_sql_from_imported_state(conn, fields, imported_state):
+    sources = imported_state.get("sources") or []
+    modifiers = imported_state.get("modifiers") or {}
+    warnings = list(imported_state.get("warnings") or [])
+
+    if not sources:
+        raise ValueError("Imported query state has no FROM source.")
+
+    aliases = {}
+    source_table_ids = []
+    for source in sources:
+        table_id = source.get("table_id")
+        if table_id:
+            aliases[int(table_id)] = source.get("alias") or source.get("table_name")
+            source_table_ids.append(int(table_id))
+
+    selected_parts = []
+    selected_table_ids = []
+    for field in fields:
+        if field.get("kind") == "expression":
+            sql_text = (field.get("sql") or "").strip()
+            if sql_text:
+                selected_parts.append(sql_text)
+            continue
+
+        table_id = int(field["table_id"])
+        column_name = str(field["column_name"])
+        row = conn.execute(
+            """
+            SELECT t.*, c.column_name
+            FROM qb_tables t
+            JOIN qb_columns c ON c.table_id = t.id
+            WHERE t.id = ? AND lower(c.column_name) = lower(?)
+            LIMIT 1
+            """,
+            (table_id, column_name),
+        ).fetchone()
+        if not row:
+            continue
+
+        if table_id not in selected_table_ids:
+            selected_table_ids.append(table_id)
+
+        alias = aliases.get(table_id)
+        if alias:
+            expression_sql = f"{quote_ident(alias)}.{quote_ident(row['column_name'])}"
+        else:
+            expression_sql = quote_ident(row["column_name"])
+
+        output_alias = (field.get("output_alias") or "").strip()
+        if output_alias:
+            expression_sql += f" AS {quote_ident(output_alias)}"
+        selected_parts.append(expression_sql)
+
+    if not selected_parts:
+        selected_parts = ["*"]
+
+    base = sources[0]
+    sql_lines = []
+    prefix = imported_state.get("with_sql")
+    if prefix:
+        sql_lines.append(prefix)
+
+    select_head = "SELECT DISTINCT" if imported_state.get("distinct") else "SELECT"
+    sql_lines.extend(
+        [
+            select_head,
+            "    " + ",\n    ".join(selected_parts),
+            f"FROM {base.get('source_sql')}",
+        ]
+    )
+
+    joined_ids = set()
+    if base.get("table_id"):
+        joined_ids.add(int(base["table_id"]))
+
+    for source in sources[1:]:
+        join_sql = source.get("join_sql")
+        if join_sql:
+            sql_lines.append(join_sql)
+        if source.get("table_id"):
+            joined_ids.add(int(source["table_id"]))
+
+    next_alias = 1
+    for table_id in selected_table_ids:
+        if table_id in joined_ids:
+            continue
+
+        table = conn.execute(
+            "SELECT * FROM qb_tables WHERE id = ?",
+            (table_id,),
+        ).fetchone()
+        if not table:
+            continue
+
+        placeholders = ",".join("?" for _ in joined_ids) if joined_ids else ""
+        rel = None
+        if joined_ids:
+            params = [table_id, *joined_ids, *joined_ids, table_id]
+            rel = conn.execute(
+                f"""
+                SELECT r.*, lc.column_name left_name, rc.column_name right_name
+                FROM qb_relationships r
+                JOIN qb_columns lc ON lc.id = r.left_column_id
+                JOIN qb_columns rc ON rc.id = r.right_column_id
+                WHERE (r.left_table_id = ? AND r.right_table_id IN ({placeholders}))
+                   OR (r.left_table_id IN ({placeholders}) AND r.right_table_id = ?)
+                ORDER BY
+                    CASE r.source
+                        WHEN 'manual' THEN 1
+                        WHEN 'ai-approved' THEN 2
+                        WHEN 'llm' THEN 3
+                        WHEN 'auto' THEN 4
+                        ELSE 5
+                    END,
+                    r.confidence DESC
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+
+        while f"qb{next_alias}" in set(aliases.values()):
+            next_alias += 1
+        new_alias = f"qb{next_alias}"
+        next_alias += 1
+        aliases[table_id] = new_alias
+
+        if rel:
+            if rel["left_table_id"] == table_id:
+                new_col = rel["left_name"]
+                existing_id = rel["right_table_id"]
+                existing_col = rel["right_name"]
+            else:
+                new_col = rel["right_name"]
+                existing_id = rel["left_table_id"]
+                existing_col = rel["left_name"]
+
+            existing_alias = aliases.get(existing_id)
+            if existing_alias:
+                sql_lines.append(
+                    f"INNER JOIN {qualified_name(table)} AS {quote_ident(new_alias)}"
+                )
+                sql_lines.append(
+                    f"    ON {quote_ident(new_alias)}.{quote_ident(new_col)} = "
+                    f"{quote_ident(existing_alias)}.{quote_ident(existing_col)}"
+                )
+            else:
+                sql_lines.append(
+                    f"CROSS JOIN {qualified_name(table)} AS {quote_ident(new_alias)}"
+                )
+                warnings.append(
+                    f"No usable alias was available for the detected relationship to {table['table_name']}; CROSS JOIN used."
+                )
+        else:
+            sql_lines.append(
+                f"CROSS JOIN {qualified_name(table)} AS {quote_ident(new_alias)}"
+            )
+            warnings.append(
+                f"No stored relationship was found for added table {table['table_name']}; CROSS JOIN used."
+            )
+
+        joined_ids.add(table_id)
+
+    for key in ("where", "group", "having", "qualify", "order", "limit", "offset"):
+        value = modifiers.get(key)
+        if value:
+            sql_lines.append(value)
+
+    sql_lines.append(";")
+    return "\n".join(sql_lines), warnings
+
+
 def builder():
     conn = db()
     tables = conn.execute(
@@ -3477,6 +3973,37 @@ def builder():
             )
     conn.close()
     return render_template("builder.html", tables=payload)
+
+
+
+@app.post("/api/import-sql")
+def api_import_sql():
+    body = request.get_json(silent=True) or {}
+    conn = db()
+    try:
+        parsed = parse_databricks_query_to_builder(conn, body.get("sql"))
+        return jsonify({"ok": True, **parsed})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        conn.close()
+
+
+@app.post("/api/import-sql/relationship-proposal")
+def api_import_sql_relationship_proposal():
+    body = request.get_json(silent=True) or {}
+    conn = db()
+    try:
+        proposal_id, count = create_imported_join_proposal(
+            conn, body.get("candidates") or []
+        )
+        conn.commit()
+        return jsonify({"ok": True, "proposal_id": proposal_id, "count": count})
+    except Exception as exc:
+        conn.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        conn.close()
 
 
 @app.get("/api/schema")
@@ -3507,10 +4034,33 @@ def api_schema():
 def api_build_sql():
     body = request.get_json(silent=True) or {}
     fields = body.get("fields", [])
-    if not fields:
-        return jsonify({"sql": "-- Drag fields here to build a query.", "joins": []})
+    imported_state = body.get("imported_state")
 
     conn = db()
+    if imported_state:
+        try:
+            sql_text, warnings = build_sql_from_imported_state(
+                conn, fields, imported_state
+            )
+            conn.close()
+            return jsonify({
+                "sql": sql_text,
+                "joins": [],
+                "warnings": warnings,
+                "imported": True,
+            })
+        except Exception as exc:
+            conn.close()
+            return jsonify({
+                "sql": f"-- Could not rebuild imported query: {exc}",
+                "joins": [],
+                "warnings": [str(exc)],
+                "imported": True,
+            }), 400
+
+    if not fields:
+        conn.close()
+        return jsonify({"sql": "-- Drag fields here to build a query.", "joins": []})
     resolved = []
     for field in fields:
         table_id = int(field["table_id"])
