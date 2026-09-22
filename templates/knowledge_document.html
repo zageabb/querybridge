@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QueryBridge - {{ item.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+    <div>
+        <div class="brand">QueryBridge</div>
+        <div class="subtitle">Markdown knowledge document</div>
+    </div>
+    <nav>
+        <a href="{{ url_for('index') }}">Metadata</a>
+        <a href="{{ url_for('builder') }}">Query Builder</a>
+        <a class="active" href="{{ url_for('knowledge') }}">Knowledge</a>
+        <a href="{{ url_for('schema_chat') }}">Schema Chat</a>
+        <a href="{{ url_for('ai_skills') }}">AI Skills</a>
+        <a href="{{ url_for('llm_setup') }}">LLM Setup</a>
+    </nav>
+</header>
+
+<main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="page-head-row">
+        <div>
+            <a href="{{ url_for('knowledge') }}">← Knowledge</a>
+            <p class="eyebrow">MARKDOWN KNOWLEDGE</p>
+            <h1>{{ item.title }}</h1>
+            <p class="muted">{{ item.category }} · updated {{ item.updated_at[:16].replace('T', ' ') }}</p>
+        </div>
+        <button id="toggle-edit" class="secondary" type="button">Edit Markdown</button>
+    </div>
+
+    <section id="document-view" class="panel markdown-document">
+        {{ rendered }}
+    </section>
+
+    <section id="document-edit" class="panel markdown-editor-panel" hidden>
+        <form method="post" action="{{ url_for('edit_knowledge_document', item_id=item.id) }}">
+            <div class="two-col">
+                <label>Title
+                    <input name="title" value="{{ item.title }}" required>
+                </label>
+                <label>Category
+                    <select name="category">
+                        {% for category in ['relationship','package','business_rule','naming','general'] %}
+                        <option value="{{ category }}" {% if item.category == category %}selected{% endif %}>{{ category }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+
+            <div class="markdown-edit-grid">
+                <div>
+                    <label>Markdown
+                        <textarea id="markdown-source" name="content" rows="28" required>{{ item.content }}</textarea>
+                    </label>
+                </div>
+                <div>
+                    <div class="preview-head">
+                        <strong>Live preview</strong>
+                        <span class="hint">Tables, headings, lists and fenced code are supported.</span>
+                    </div>
+                    <div id="markdown-preview" class="markdown-document markdown-preview"></div>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button class="primary" type="submit">Save Markdown</button>
+                <button id="cancel-edit" class="secondary" type="button">Cancel</button>
+            </div>
+        </form>
+    </section>
+</main>
+
+<script>
+const view = document.getElementById("document-view");
+const editor = document.getElementById("document-edit");
+const toggle = document.getElementById("toggle-edit");
+const cancel = document.getElementById("cancel-edit");
+const source = document.getElementById("markdown-source");
+const preview = document.getElementById("markdown-preview");
+let previewTimer = null;
+
+async function renderPreview() {
+    const response = await fetch("{{ url_for('api_render_markdown') }}", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({content: source.value})
+    });
+    const data = await response.json();
+    if (data.ok) preview.innerHTML = data.html;
+}
+
+toggle.addEventListener("click", function () {
+    view.hidden = true;
+    editor.hidden = false;
+    toggle.hidden = true;
+    renderPreview();
+});
+
+cancel.addEventListener("click", function () {
+    editor.hidden = true;
+    view.hidden = false;
+    toggle.hidden = false;
+});
+
+source.addEventListener("input", function () {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(renderPreview, 250);
+});
+</script>
+</body>
+</html>
