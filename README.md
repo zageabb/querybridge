@@ -181,3 +181,23 @@ AI can propose local metadata-model operations including:
 - add/remove relationships
 
 AI proposals never alter Databricks and never apply automatically. They are stored in the **AI Skills** review queue and must be explicitly **Applied** or **Rejected**. QueryBridge validates the proposal when generated and again immediately before application.
+
+
+### Local Schema SQL Analysis
+
+Schema Chat can use the built-in **Local Schema SQL Analysis** skill to run read-only SQLite `SELECT` statements over QueryBridge's locally captured metadata.
+
+It does **not** connect to Databricks.
+
+For each analysis request QueryBridge builds an isolated in-memory database containing only:
+
+- `schema_tables`
+- `schema_fields`
+- `schema_relationships`
+- `schema_knowledge`
+
+The LLM can use joins, filters, CTEs, grouping and aggregates across those local analysis tables. It can issue multiple SELECTs in one chat turn before producing its final answer.
+
+The sandbox has no access to QueryBridge chat history, LLM settings or other application tables, and is switched to SQLite `query_only` mode before the AI can query it.
+
+Other enabled AI skills are also included in Schema Chat context, so relationship analysis, field-type review, schema curation and custom skills can reason over the same locally stored schema.
