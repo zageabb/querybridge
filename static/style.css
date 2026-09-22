@@ -236,7 +236,14 @@ select {
 .source-badge.manual { background: #dcfae6; color: #067647; }
 
 .chat-body { height: 100vh; overflow: hidden; }
-.chat-shell { display: grid; grid-template-columns: 270px 1fr; height: calc(100vh - 76px); }
+.chat-shell {
+    display: grid;
+    grid-template-columns: 270px minmax(0, 1fr);
+    width: 100%;
+    max-width: 100vw;
+    height: calc(100vh - 76px);
+    overflow: hidden;
+}
 .chat-context {
     padding: 22px;
     border-right: 1px solid #e4e7ec;
@@ -263,7 +270,12 @@ select {
     overflow: hidden;
 }
 .chat-workspace > .flash { margin: 14px 18px 0; }
-.chat-messages { overflow: auto; padding: 28px max(28px, calc((100% - 920px) / 2)); }
+.chat-messages {
+    min-width: 0;
+    max-width: 100%;
+    overflow: auto;
+    padding: 28px max(28px, calc((100% - 920px) / 2));
+}
 .chat-welcome {
     max-width: 700px;
     margin: 80px auto;
@@ -272,23 +284,32 @@ select {
 }
 .chat-welcome h1 { color: #182230; }
 .chat-message {
+    width: 100%;
     max-width: 880px;
+    min-width: 0;
     margin: 0 auto 18px;
 }
 .chat-role { font-weight: 750; font-size: 12px; color: #667085; margin-bottom: 6px; }
 .chat-text {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
     line-height: 1.55;
     background: white;
     border: 1px solid #e4e7ec;
     border-radius: 12px;
     padding: 14px 16px;
+    overflow: hidden;
 }
 .chat-message.user .chat-text { background: #eff8ff; border-color: #b2ddff; }
 .chat-message.error-message .chat-text { background: #fee4e2; color: #b42318; }
 .chat-composer {
+    min-width: 0;
+    max-width: 100%;
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     align-items: end;
     padding: 16px max(28px, calc((100% - 920px) / 2));
@@ -551,4 +572,46 @@ body.resizing-panes {
 }
 .chat-text.markdown-document table {
     margin: 12px 0;
+}
+
+
+/* Keep rich chat content inside the message card. */
+.chat-text.markdown-document {
+    white-space: normal;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+}
+.chat-text.markdown-document .markdown-table-scroll {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin: 12px 0;
+    border: 1px solid #e4e7ec;
+    border-radius: 8px;
+    background: white;
+}
+.chat-text.markdown-document .markdown-table-scroll table {
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+    margin: 0;
+    border: 0;
+    table-layout: auto;
+}
+.chat-text.markdown-document .markdown-table-scroll th,
+.chat-text.markdown-document .markdown-table-scroll td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    min-width: 120px;
+    max-width: 360px;
+}
+.chat-text.markdown-document pre {
+    max-width: 100%;
+    overflow-x: auto;
+}
+.chat-text.markdown-document code {
+    overflow-wrap: anywhere;
 }
