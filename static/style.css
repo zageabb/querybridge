@@ -538,3 +538,17 @@ body.resizing-panes {
     .markdown-edit-grid { grid-template-columns: 1fr; }
     .page-head-row { flex-direction: column; }
 }
+
+.skill-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+.skill-actions form { margin: 0; }
+.chat-text.markdown-document {
+    padding: 14px 16px;
+}
+.chat-text.markdown-document table {
+    margin: 12px 0;
+}
