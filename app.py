@@ -3791,8 +3791,30 @@ def build_sql_from_imported_state(conn, fields, imported_state):
             aliases[int(table_id)] = source.get("alias") or source.get("table_name")
             source_table_ids.append(int(table_id))
 
-    selected_parts = []
     selected_table_ids = []
+    for field in fields:
+        if field.get("kind") == "expression":
+            continue
+        try:
+            table_id = int(field["table_id"])
+        except Exception:
+            continue
+        if table_id not in selected_table_ids:
+            selected_table_ids.append(table_id)
+
+    next_alias = 1
+    used_aliases = {str(value) for value in aliases.values() if value}
+    for table_id in selected_table_ids:
+        if table_id in aliases:
+            continue
+        while f"qb{next_alias}" in used_aliases:
+            next_alias += 1
+        alias = f"qb{next_alias}"
+        next_alias += 1
+        aliases[table_id] = alias
+        used_aliases.add(alias)
+
+    selected_parts = []
     for field in fields:
         if field.get("kind") == "expression":
             sql_text = (field.get("sql") or "").strip()
@@ -3815,14 +3837,12 @@ def build_sql_from_imported_state(conn, fields, imported_state):
         if not row:
             continue
 
-        if table_id not in selected_table_ids:
-            selected_table_ids.append(table_id)
-
         alias = aliases.get(table_id)
-        if alias:
-            expression_sql = f"{quote_ident(alias)}.{quote_ident(row['column_name'])}"
-        else:
-            expression_sql = quote_ident(row["column_name"])
+        expression_sql = (
+            f"{quote_ident(alias)}.{quote_ident(row['column_name'])}"
+            if alias
+            else quote_ident(row["column_name"])
+        )
 
         output_alias = (field.get("output_alias") or "").strip()
         if output_alias:
@@ -3858,7 +3878,6 @@ def build_sql_from_imported_state(conn, fields, imported_state):
         if source.get("table_id"):
             joined_ids.add(int(source["table_id"]))
 
-    next_alias = 1
     for table_id in selected_table_ids:
         if table_id in joined_ids:
             continue
@@ -3896,11 +3915,7 @@ def build_sql_from_imported_state(conn, fields, imported_state):
                 params,
             ).fetchone()
 
-        while f"qb{next_alias}" in set(aliases.values()):
-            next_alias += 1
-        new_alias = f"qb{next_alias}"
-        next_alias += 1
-        aliases[table_id] = new_alias
+        new_alias = aliases[table_id]
 
         if rel:
             if rel["left_table_id"] == table_id:
