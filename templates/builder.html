@@ -503,19 +503,18 @@ function entityFieldRow(source, column) {
 }
 
 function currentEntitySources() {
-    if (importedState) {
-        return importedState.sources || [];
-    }
-
     const seen = new Set();
-    const sources = [];
+    const sources = importedState ? (importedState.sources || []).map(function (source) {
+        if (source.table_id) seen.add(Number(source.table_id));
+        return source;
+    }) : [];
     selected.forEach(function (item) {
         if (item.kind === "expression" || item.table_id == null) return;
         const tableId = Number(item.table_id);
         if (seen.has(tableId) || !schemaTableMap.has(tableId)) return;
         seen.add(tableId);
         const table = schemaTableMap.get(tableId);
-        const defaultAlias = "t" + sources.length + 1;
+        const defaultAlias = "t" + (sources.length + 1);
         sources.push({
             role: sources.length === 0 ? "from" : "join",
             table_id: tableId,
@@ -630,7 +629,10 @@ function renderCriteria() {
         const refs = document.createElement("span");
         refs.className = "query-criterion-refs";
         refs.textContent = (criterion.columns || []).map(function (ref) {
-            return (ref.alias ? ref.alias + "." : "") + ref.column;
+            const effectiveAlias = ref.table_id
+                ? (tableAliases[String(ref.table_id)] || ref.alias)
+                : ref.alias;
+            return (effectiveAlias ? effectiveAlias + "." : "") + ref.column;
         }).join(", ");
         row.appendChild(refs);
 
