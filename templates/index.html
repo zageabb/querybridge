@@ -108,11 +108,11 @@
                     </div>
                 </div>
                 <div class="snapshot-buttons">
-                    <form method="post" action="{{ url_for('load_schema_snapshot', snapshot_id=snapshot.id) }}" onsubmit="return confirm('Replace the current working schema with {{ snapshot.name|e }}?')">
+                    <form method="post" action="{{ url_for('load_schema_snapshot', snapshot_id=snapshot.id) }}" onsubmit="return confirm('Replace the current working schema with this saved snapshot?')">
                         <button class="primary small" type="submit">Load</button>
                     </form>
                     <a class="secondary button-link small" href="{{ url_for('export_schema_snapshot', snapshot_id=snapshot.id) }}">Export</a>
-                    <form method="post" action="{{ url_for('delete_schema_snapshot', snapshot_id=snapshot.id) }}" onsubmit="return confirm('Delete saved schema {{ snapshot.name|e }}?')">
+                    <form method="post" action="{{ url_for('delete_schema_snapshot', snapshot_id=snapshot.id) }}" onsubmit="return confirm('Delete this saved schema snapshot?')">
                         <button class="danger small" type="submit">Delete</button>
                     </form>
                 </div>
