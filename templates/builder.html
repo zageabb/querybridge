@@ -54,6 +54,7 @@
             </details>
             {% endfor %}
         </aside>
+        <div class="pane-splitter" id="splitter-left" role="separator" aria-orientation="vertical" title="Drag to resize panes"></div>
 
         <section class="canvas">
             <div class="canvas-head">
@@ -74,6 +75,7 @@
                 <div id="join-status" class="muted">Add fields from more than one table to see joins.</div>
             </div>
         </section>
+        <div class="pane-splitter" id="splitter-right" role="separator" aria-orientation="vertical" title="Drag to resize panes"></div>
 
         <aside class="sql-preview">
             <div class="panel-head">
@@ -127,6 +129,94 @@ function showCopyState(button, ok) {
 }
 
 const selected = [];
+const builderGrid = document.querySelector(".builder-grid");
+const leftSplitter = document.getElementById("splitter-left");
+const rightSplitter = document.getElementById("splitter-right");
+const leftPane = document.querySelector(".schema-browser");
+const centerPane = document.querySelector(".canvas");
+const rightPane = document.querySelector(".sql-preview");
+
+const PANE_STORAGE_KEY = "querybridge.builder.panes";
+
+function applyPaneWidths(leftWidth, rightWidth) {
+    if (!builderGrid) return;
+    const minLeft = 220;
+    const minCenter = 320;
+    const minRight = 280;
+    const splitterWidth = 12;
+    const total = builderGrid.clientWidth;
+
+    let left = Math.max(minLeft, Math.round(leftWidth));
+    let right = Math.max(minRight, Math.round(rightWidth));
+    const maxCombined = Math.max(minLeft + minRight, total - minCenter - (splitterWidth * 2));
+
+    if (left + right > maxCombined) {
+        const excess = left + right - maxCombined;
+        const leftReducible = Math.max(0, left - minLeft);
+        const reduceLeft = Math.min(leftReducible, Math.ceil(excess / 2));
+        left -= reduceLeft;
+        right = Math.max(minRight, right - (excess - reduceLeft));
+    }
+
+    builderGrid.style.setProperty("--left-pane-width", left + "px");
+    builderGrid.style.setProperty("--right-pane-width", right + "px");
+
+    try {
+        localStorage.setItem(PANE_STORAGE_KEY, JSON.stringify({left: left, right: right}));
+    } catch (_) {}
+}
+
+function restorePaneWidths() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(PANE_STORAGE_KEY) || "{}");
+        if (saved.left && saved.right) {
+            applyPaneWidths(saved.left, saved.right);
+        }
+    } catch (_) {}
+}
+
+function setupSplitter(splitter, side) {
+    if (!splitter || !builderGrid) return;
+
+    splitter.addEventListener("mousedown", function (event) {
+        event.preventDefault();
+        const startX = event.clientX;
+        const startLeft = leftPane.getBoundingClientRect().width;
+        const startRight = rightPane.getBoundingClientRect().width;
+
+        document.body.classList.add("resizing-panes");
+
+        function move(moveEvent) {
+            const delta = moveEvent.clientX - startX;
+            if (side === "left") {
+                applyPaneWidths(startLeft + delta, startRight);
+            } else {
+                applyPaneWidths(startLeft, startRight - delta);
+            }
+        }
+
+        function stop() {
+            document.removeEventListener("mousemove", move);
+            document.removeEventListener("mouseup", stop);
+            document.body.classList.remove("resizing-panes");
+        }
+
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", stop);
+    });
+}
+
+restorePaneWidths();
+setupSplitter(leftSplitter, "left");
+setupSplitter(rightSplitter, "right");
+
+window.addEventListener("resize", function () {
+    if (!builderGrid || window.innerWidth <= 1100) return;
+    const left = leftPane.getBoundingClientRect().width;
+    const right = rightPane.getBoundingClientRect().width;
+    applyPaneWidths(left, right);
+});
+
 const dropZone = document.getElementById("drop-zone");
 const selectedFields = document.getElementById("selected-fields");
 const emptyDrop = document.getElementById("empty-drop");
