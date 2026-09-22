@@ -78,3 +78,63 @@ The export uses table/schema/column identities rather than local SQLite row IDs,
 ### Import
 
 Use **Import schema** to add an exported QueryBridge JSON file to the local schema library. You can optionally load it immediately into the working area.
+
+
+## Local LLM and schema intelligence
+
+QueryBridge can use a locally hosted Ollama model to reason about the captured schema without requiring a live Databricks connection.
+
+### LLM Setup
+
+Open **LLM Setup** and configure:
+
+- Ollama base URL
+- model name
+- temperature
+- request timeout
+
+Use **Load models** to query the configured Ollama server and **Save & test connection** to verify access.
+
+### Schema Chat
+
+**Schema Chat** sends the current working schema, known/inferred relationships and schema knowledge to the configured model. It can be used to:
+
+- explain tables and fields
+- identify likely source/target tables
+- discuss joins
+- draft Databricks SQL
+- identify missing metadata or knowledge
+
+QueryBridge instructs the model not to invent table or column names when answering schema-specific questions.
+
+### Knowledge
+
+The **Knowledge** page stores additional context such as:
+
+- package or source-system information
+- known relationship hints
+- business rules
+- naming conventions
+- general schema notes
+
+Knowledge is included in LLM context and is also saved inside named QueryBridge schema snapshots.
+
+### AI Guess Links
+
+From the Knowledge page, **AI Guess Links** asks the configured LLM to propose useful equality joins.
+
+Each suggestion must identify real tables and fields from the captured schema. QueryBridge validates those names before storing the relationship. LLM-created links are marked with source `llm`, a confidence value and a reason supplied by the model.
+
+The Query Builder can use those relationships when generating JOIN clauses.
+
+### Schema snapshots and AI context
+
+Named schema snapshots now carry:
+
+- tables and fields
+- Databricks types and comments
+- heuristic relationships
+- LLM-suggested relationships and reasons
+- schema/package knowledge
+
+Loading a different schema snapshot clears the previous schema-chat history so conversations do not mix context from different schemas.
