@@ -28,7 +28,8 @@
         <div class="chat-context-stat"><strong>{{ table_count }}</strong><span>captured tables</span></div>
         <div class="chat-context-stat"><strong>{{ knowledge_count }}</strong><span>knowledge entries</span></div>
         <div class="chat-context-stat"><strong>{{ settings.model or 'Not set' }}</strong><span>LLM model</span></div>
-        <p>The assistant sees the current schema, inferred links and knowledge library with each question.</p>
+        <div class="chat-context-stat"><strong>Local only</strong><span>schema SQL analysis</span></div>
+        <p>The assistant sees the current schema, inferred links, enabled AI skills and knowledge library. It can run read-only SELECTs against QueryBridge's local metadata copy.</p>
         <a class="secondary button-link wide" href="{{ url_for('knowledge') }}">Open Knowledge</a>
         <a class="secondary button-link wide" href="{{ url_for('llm_setup') }}">LLM Setup</a>
         <form method="post" action="{{ url_for('clear_schema_chat') }}" onsubmit="return confirm('Clear the schema chat history?')">
@@ -135,6 +136,13 @@ form.addEventListener("submit", async function (event) {
         box.innerHTML = data.html || "";
         box.classList.add("markdown-document");
         wrapMarkdownTables(box);
+
+        if (Array.isArray(data.tool_runs) && data.tool_runs.length) {
+            const note = document.createElement("div");
+            note.className = "chat-tool-note";
+            note.textContent = "Used " + data.tool_runs.length + " local schema SELECT" + (data.tool_runs.length === 1 ? "" : "s") + ".";
+            pending.appendChild(note);
+        }
     } catch (error) {
         pending.querySelector(".chat-text").textContent = "Error: " + error.message;
         pending.classList.add("error-message");
