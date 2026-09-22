@@ -786,6 +786,7 @@ def restore_working_schema(conn, payload):
     conn.execute("DELETE FROM qb_relationships")
     conn.execute("DELETE FROM qb_imports")
     conn.execute("DELETE FROM qb_knowledge")
+    conn.execute("DELETE FROM qb_chat_messages")
     conn.execute("DELETE FROM qb_columns")
     conn.execute("DELETE FROM qb_tables")
 
@@ -1425,9 +1426,11 @@ def api_llm_models():
     conn = db()
     settings = get_llm_settings(conn)
     conn.close()
+    requested_url = normalize_base_url(request.args.get("base_url"))
+    base_url = requested_url or settings.get("base_url")
     try:
         models = ollama_models(
-            settings.get("base_url"),
+            base_url,
             min(int(settings.get("timeout_seconds") or 120), 30),
         )
         return jsonify({"ok": True, "models": models})
@@ -1653,6 +1656,8 @@ def reset_metadata():
     conn.execute("DELETE FROM qb_columns")
     conn.execute("DELETE FROM qb_tables")
     conn.execute("DELETE FROM qb_imports")
+    conn.execute("DELETE FROM qb_knowledge")
+    conn.execute("DELETE FROM qb_chat_messages")
     conn.commit()
     conn.close()
     flash("Working metadata cleared. Saved schema snapshots were kept.", "success")
