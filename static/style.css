@@ -340,3 +340,14 @@ body.resizing-panes {
     cursor: col-resize;
     user-select: none;
 }
+
+.knowledge-pack-panel {
+    border-color: #b2ccff;
+    background: linear-gradient(180deg, #f5f8ff 0%, #ffffff 100%);
+}
+.knowledge-pack-panel .panel-head {
+    align-items: center;
+}
+.knowledge-pack-panel form {
+    flex: 0 0 auto;
+}
