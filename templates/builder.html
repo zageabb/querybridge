@@ -91,6 +91,26 @@
 
             <div id="imported-query-summary" class="imported-query-summary" hidden></div>
 
+            <section id="query-entities-panel" class="query-entities-panel" hidden>
+                <div class="query-entities-head">
+                    <div>
+                        <h3>Query entities</h3>
+                        <p>Tables can participate in joins or criteria even when none of their fields are selected.</p>
+                    </div>
+                    <span id="query-entity-count" class="status good">0 tables</span>
+                </div>
+
+                <div id="query-entity-stage" class="query-entity-stage">
+                    <svg id="query-entity-links" class="query-entity-links" aria-hidden="true"></svg>
+                    <div id="query-entity-cards" class="query-entity-cards"></div>
+                </div>
+
+                <div id="query-criteria-panel" class="query-criteria-panel" hidden>
+                    <h4>Criteria</h4>
+                    <div id="query-criteria-list" class="query-criteria-list"></div>
+                </div>
+            </section>
+
             <div id="drop-zone" class="drop-zone">
                 <div id="empty-drop">Drop fields here</div>
                 <div id="selected-fields"></div>
@@ -154,6 +174,10 @@ function showCopyState(button, ok) {
     setTimeout(function () { button.innerText = old; }, 1400);
 }
 
+const schemaTables = {{ tables | tojson }};
+const schemaTableMap = new Map(schemaTables.map(function (table) {
+    return [Number(table.id), table];
+}));
 let selected = [];
 let importedState = null;
 let importedRelationshipCandidates = [];
@@ -257,6 +281,13 @@ const importStatus = document.getElementById("import-sql-status");
 const importedSummary = document.getElementById("imported-query-summary");
 const importLinkProposalWrap = document.getElementById("import-link-proposal-wrap");
 const importLinkProposalStatus = document.getElementById("import-link-proposal-status");
+const queryEntitiesPanel = document.getElementById("query-entities-panel");
+const queryEntityStage = document.getElementById("query-entity-stage");
+const queryEntityCards = document.getElementById("query-entity-cards");
+const queryEntityLinks = document.getElementById("query-entity-links");
+const queryEntityCount = document.getElementById("query-entity-count");
+const queryCriteriaPanel = document.getElementById("query-criteria-panel");
+const queryCriteriaList = document.getElementById("query-criteria-list");
 
 document.querySelectorAll(".field").forEach(function (field) {
     field.addEventListener("dragstart", function (event) {
@@ -335,6 +366,9 @@ function renderFields() {
     });
 
     syncFieldHighlights();
+    if (importedState) {
+        requestAnimationFrame(renderQueryEntities);
+    }
 }
 
 function syncFieldHighlights() {
@@ -347,6 +381,258 @@ function syncFieldHighlights() {
                 && item.column_name === column;
         });
         field.classList.toggle("in-query", active);
+    });
+}
+
+
+function selectedFieldRole(tableId, columnName) {
+    return selected.some(function (item) {
+        return item.kind !== "expression"
+            && Number(item.table_id) === Number(tableId)
+            && item.column_name === columnName;
+    });
+}
+
+function importedFieldRoles(alias, tableId, columnName) {
+    const roles = [];
+    if (selectedFieldRole(tableId, columnName)) roles.push("SELECT");
+
+    if (importedState) {
+        (importedState.joins || []).forEach(function (join) {
+            (join.columns || []).forEach(function (ref) {
+                const aliasMatch = alias && ref.alias && String(ref.alias).toLowerCase() === String(alias).toLowerCase();
+                const tableMatch = ref.table_id && Number(ref.table_id) === Number(tableId);
+                if ((aliasMatch || tableMatch) && ref.column === columnName && !roles.includes("JOIN")) {
+                    roles.push("JOIN");
+                }
+            });
+        });
+
+        (importedState.criteria || []).forEach(function (criterion) {
+            (criterion.columns || []).forEach(function (ref) {
+                const aliasMatch = alias && ref.alias && String(ref.alias).toLowerCase() === String(alias).toLowerCase();
+                const tableMatch = ref.table_id && Number(ref.table_id) === Number(tableId);
+                if ((aliasMatch || tableMatch) && ref.column === columnName && !roles.includes("WHERE")) {
+                    roles.push("WHERE");
+                }
+            });
+        });
+    }
+    return roles;
+}
+
+function entityFieldRow(source, column) {
+    const row = document.createElement("div");
+    row.className = "entity-field-row";
+    const roles = importedFieldRoles(source.alias, source.table_id, column.column_name);
+    if (roles.length) row.classList.add("used");
+
+    const name = document.createElement("span");
+    name.className = "entity-field-name";
+    name.textContent = column.column_name;
+
+    const badges = document.createElement("span");
+    badges.className = "entity-field-badges";
+    roles.forEach(function (role) {
+        const badge = document.createElement("span");
+        badge.className = "entity-field-badge role-" + role.toLowerCase();
+        badge.textContent = role;
+        badges.appendChild(badge);
+    });
+
+    if (!roles.length && column.data_type) {
+        const type = document.createElement("small");
+        type.textContent = column.data_type;
+        badges.appendChild(type);
+    }
+
+    row.appendChild(name);
+    row.appendChild(badges);
+    row.title = "Double-click to add/remove this field from SELECT";
+    row.addEventListener("dblclick", function () {
+        const existingIndex = selected.findIndex(function (item) {
+            return item.kind !== "expression"
+                && Number(item.table_id) === Number(source.table_id)
+                && item.column_name === column.column_name;
+        });
+        if (existingIndex >= 0) {
+            selected.splice(existingIndex, 1);
+            renderFields();
+            renderQueryEntities();
+            refreshSql();
+        } else {
+            addField({
+                kind: "field",
+                table_id: Number(source.table_id),
+                column_name: column.column_name,
+                source_alias: source.alias || null
+            });
+            renderQueryEntities();
+        }
+    });
+    return row;
+}
+
+function renderQueryEntities() {
+    if (!queryEntitiesPanel || !queryEntityCards) return;
+
+    const sources = importedState ? (importedState.sources || []) : [];
+    if (!sources.length) {
+        queryEntitiesPanel.hidden = true;
+        queryEntityCards.innerHTML = "";
+        if (queryEntityLinks) queryEntityLinks.innerHTML = "";
+        if (queryCriteriaPanel) queryCriteriaPanel.hidden = true;
+        return;
+    }
+
+    queryEntitiesPanel.hidden = false;
+    queryEntityCards.innerHTML = "";
+    queryEntityCount.textContent = sources.length + " table" + (sources.length === 1 ? "" : "s");
+
+    sources.forEach(function (source, index) {
+        const card = document.createElement("article");
+        card.className = "query-entity-card" + (source.matched ? "" : " unmatched");
+        card.dataset.alias = source.alias || ("source_" + index);
+        if (source.table_id) card.dataset.tableId = String(source.table_id);
+
+        const head = document.createElement("div");
+        head.className = "query-entity-card-head";
+
+        const titleWrap = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = source.table_name || source.source_sql || "Unmatched source";
+        const subtitle = document.createElement("small");
+        const qualifier = [source.catalog, source.schema_name].filter(Boolean).join(".");
+        subtitle.textContent = (source.alias ? "alias " + source.alias : "no alias")
+            + (qualifier ? " · " + qualifier : "");
+        titleWrap.appendChild(title);
+        titleWrap.appendChild(subtitle);
+
+        const role = document.createElement("span");
+        role.className = "entity-source-role";
+        role.textContent = source.role === "from" ? "FROM" : "JOIN";
+
+        head.appendChild(titleWrap);
+        head.appendChild(role);
+        card.appendChild(head);
+
+        const body = document.createElement("div");
+        body.className = "query-entity-field-list";
+
+        if (source.table_id && schemaTableMap.has(Number(source.table_id))) {
+            const table = schemaTableMap.get(Number(source.table_id));
+            (table.columns || []).forEach(function (column) {
+                body.appendChild(entityFieldRow(source, column));
+            });
+        } else {
+            const warning = document.createElement("div");
+            warning.className = "entity-unmatched-note";
+            warning.textContent = "Not matched to local schema";
+            body.appendChild(warning);
+        }
+
+        card.appendChild(body);
+        queryEntityCards.appendChild(card);
+    });
+
+    renderCriteria();
+    requestAnimationFrame(drawEntityLinks);
+}
+
+function renderCriteria() {
+    if (!queryCriteriaPanel || !queryCriteriaList) return;
+    const criteria = importedState ? (importedState.criteria || []) : [];
+    queryCriteriaList.innerHTML = "";
+    queryCriteriaPanel.hidden = criteria.length === 0;
+
+    criteria.forEach(function (criterion) {
+        const row = document.createElement("div");
+        row.className = "query-criterion-row";
+
+        const sql = document.createElement("code");
+        sql.textContent = criterion.sql;
+        row.appendChild(sql);
+
+        const refs = document.createElement("span");
+        refs.className = "query-criterion-refs";
+        refs.textContent = (criterion.columns || []).map(function (ref) {
+            return (ref.alias ? ref.alias + "." : "") + ref.column;
+        }).join(", ");
+        row.appendChild(refs);
+
+        queryCriteriaList.appendChild(row);
+    });
+}
+
+function joinEndpoints(join) {
+    const pairs = join.pairs || [];
+    if (!pairs.length) return null;
+    const pair = pairs[0];
+    return {
+        leftAlias: pair.left.alias,
+        rightAlias: pair.right.alias,
+        label: join.join_type + " · " + pair.sql
+    };
+}
+
+function drawEntityLinks() {
+    if (!queryEntityStage || !queryEntityLinks || queryEntitiesPanel.hidden) return;
+
+    const stageRect = queryEntityStage.getBoundingClientRect();
+    const width = Math.max(queryEntityStage.scrollWidth, queryEntityStage.clientWidth);
+    const height = Math.max(queryEntityStage.scrollHeight, queryEntityStage.clientHeight);
+    queryEntityLinks.setAttribute("width", width);
+    queryEntityLinks.setAttribute("height", height);
+    queryEntityLinks.setAttribute("viewBox", "0 0 " + width + " " + height);
+    queryEntityLinks.innerHTML = "";
+
+    (importedState && importedState.joins ? importedState.joins : []).forEach(function (join) {
+        const endpoints = joinEndpoints(join);
+        if (!endpoints || !endpoints.leftAlias || !endpoints.rightAlias) return;
+
+        const leftCard = Array.from(queryEntityCards.querySelectorAll(".query-entity-card")).find(function (card) {
+            return String(card.dataset.alias).toLowerCase() === String(endpoints.leftAlias).toLowerCase();
+        });
+        const rightCard = Array.from(queryEntityCards.querySelectorAll(".query-entity-card")).find(function (card) {
+            return String(card.dataset.alias).toLowerCase() === String(endpoints.rightAlias).toLowerCase();
+        });
+        if (!leftCard || !rightCard) return;
+
+        const a = leftCard.getBoundingClientRect();
+        const b = rightCard.getBoundingClientRect();
+
+        let x1 = a.right - stageRect.left + queryEntityStage.scrollLeft;
+        let y1 = a.top + (a.height / 2) - stageRect.top + queryEntityStage.scrollTop;
+        let x2 = b.left - stageRect.left + queryEntityStage.scrollLeft;
+        let y2 = b.top + (b.height / 2) - stageRect.top + queryEntityStage.scrollTop;
+
+        if (b.left < a.left) {
+            x1 = a.left - stageRect.left + queryEntityStage.scrollLeft;
+            x2 = b.right - stageRect.left + queryEntityStage.scrollLeft;
+        }
+
+        const midX = (x1 + x2) / 2;
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "M " + x1 + " " + y1 + " C " + midX + " " + y1 + ", " + midX + " " + y2 + ", " + x2 + " " + y2);
+        path.setAttribute("class", "query-join-line");
+        queryEntityLinks.appendChild(path);
+
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("x", midX);
+        label.setAttribute("y", ((y1 + y2) / 2) - 6);
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("class", "query-join-label");
+        label.textContent = endpoints.label;
+        queryEntityLinks.appendChild(label);
+    });
+}
+
+window.addEventListener("resize", function () {
+    requestAnimationFrame(drawEntityLinks);
+});
+if (queryEntityStage) {
+    queryEntityStage.addEventListener("scroll", function () {
+        requestAnimationFrame(drawEntityLinks);
     });
 }
 
@@ -399,6 +685,7 @@ if (clearButton) {
         }
         if (importLinkProposalWrap) importLinkProposalWrap.hidden = true;
         if (importLinkProposalStatus) importLinkProposalStatus.textContent = "";
+        renderQueryEntities();
         renderFields();
         refreshSql();
     });
@@ -499,6 +786,7 @@ if (parseImportButton) {
             selected = data.fields || [];
             renderFields();
             renderImportedSummary(data);
+            renderQueryEntities();
             refreshSql();
 
             (importedState.sources || []).forEach(function (source) {
