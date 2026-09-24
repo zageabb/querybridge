@@ -2,3 +2,6 @@ Flask>=3.1,<4
 requests>=2.32,<3
 Markdown>=3.7,<4
 sqlglot>=27,<29
+beautifulsoup4>=4.12,<5
+ddgs>=9,<10
+research-core @ git+https://github.com/zageabb/research-core.git@22ecfbcdd4e43f35b9f6994f0add625fee5f86d3
