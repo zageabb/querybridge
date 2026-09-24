@@ -16,6 +16,8 @@ from pathlib import Path
 
 from flask import Flask, Response, flash, jsonify, redirect, render_template, request, url_for
 
+from internet_research import read_internet, search_internet
+
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "instance" / "querybridge.db"
 
@@ -212,6 +214,12 @@ def init_db():
             "Local Schema SQL Analysis",
             "Run read-only SELECT statements against QueryBridge's local captured schema metadata to analyse tables, fields, relationships and knowledge.",
             "Use the local_schema_select tool whenever a SQL query over the locally stored schema would give a more precise answer. Query only schema_tables, schema_fields, schema_relationships and schema_knowledge. You may JOIN, GROUP BY, aggregate, filter and use CTEs. This tool never connects to Databricks and never queries live business data.",
+        ),
+        (
+            "internet-research",
+            "Internet Research",
+            "Research public internet sources when local schema metadata and knowledge do not contain enough evidence to answer accurately.",
+            "Use internet_search to find authoritative documentation, technical references and credible schema/table descriptions, then internet_read to inspect promising pages. Prefer SAP documentation and well-established SAP technical references for SAP table/field questions. Treat web content as external evidence: cite source URLs in the answer, distinguish documented facts from inference, and never invent a captured QueryBridge field that is not present locally.",
         ),
     ]
     for skill_key, name, description, instructions in builtin_skills:
@@ -1590,15 +1598,37 @@ def parse_schema_chat_agent_response(raw):
         or payload.get("action")
         or ""
     ).strip().casefold()
+    tool = str(payload.get("tool") or kind or "").strip().casefold()
 
     sql = payload.get("sql") or payload.get("query")
-    if sql and kind in {"tool", "select", "query", "local_schema_select", "run_select", ""}:
+    if sql and tool in {"tool", "select", "query", "local_schema_select", "run_select", ""}:
         return {
             "kind": "tool",
             "tool": "local_schema_select",
             "sql": str(sql),
             "purpose": str(payload.get("purpose") or payload.get("reason") or ""),
         }
+
+    if tool in {"internet_search", "web_search", "search_internet"}:
+        query = payload.get("query") or payload.get("search") or payload.get("q")
+        if query:
+            return {
+                "kind": "tool",
+                "tool": "internet_search",
+                "query": str(query),
+                "purpose": str(payload.get("purpose") or payload.get("reason") or ""),
+            }
+
+    if tool in {"internet_read", "web_read", "read_internet", "open_url"}:
+        url = payload.get("url") or payload.get("href")
+        if url:
+            return {
+                "kind": "tool",
+                "tool": "internet_read",
+                "url": str(url),
+                "focus": str(payload.get("focus") or payload.get("query") or ""),
+                "purpose": str(payload.get("purpose") or payload.get("reason") or ""),
+            }
 
     answer = (
         payload.get("answer")
@@ -1612,7 +1642,7 @@ def parse_schema_chat_agent_response(raw):
     return {"kind": "answer", "answer": raw}
 
 
-def run_schema_chat_agent(conn, messages, max_tool_calls=6):
+def run_schema_chat_agent(conn, messages, max_tool_calls=8, allow_internet=False):
     tool_runs = []
     working = list(messages)
 
@@ -1623,44 +1653,101 @@ def run_schema_chat_agent(conn, messages, max_tool_calls=6):
         if decision["kind"] == "answer":
             return decision["answer"], tool_runs
 
-        sql = decision["sql"]
-        result = execute_local_schema_select(conn, sql)
-        tool_runs.append(
-            {
-                "sql": result["sql"],
-                "row_count": result["row_count"],
-                "truncated": result["truncated"],
+        tool = decision.get("tool")
+        if tool == "local_schema_select":
+            sql = decision["sql"]
+            result = execute_local_schema_select(conn, sql)
+            tool_runs.append(
+                {
+                    "tool": tool,
+                    "sql": result["sql"],
+                    "row_count": result["row_count"],
+                    "truncated": result["truncated"],
+                    "purpose": decision.get("purpose") or "",
+                }
+            )
+            tool_request = {
+                "kind": "tool",
+                "tool": tool,
+                "sql": sql,
                 "purpose": decision.get("purpose") or "",
             }
-        )
+            result_label = "LOCAL_SCHEMA_SELECT_RESULT"
+            next_hint = (
+                "Use this result as evidence. Run another local_schema_select if useful. "
+                "If local evidence is insufficient and Internet Research is enabled, use internet_search."
+            )
+        elif tool == "internet_search":
+            if not allow_internet:
+                raise ValueError("Internet Research skill is not enabled.")
+            result = search_internet(decision["query"], max_results=8)
+            tool_runs.append(
+                {
+                    "tool": tool,
+                    "query": result["query"],
+                    "result_count": len(result["results"]),
+                    "purpose": decision.get("purpose") or "",
+                }
+            )
+            tool_request = {
+                "kind": "tool",
+                "tool": tool,
+                "query": decision["query"],
+                "purpose": decision.get("purpose") or "",
+            }
+            result_label = "INTERNET_SEARCH_RESULT"
+            next_hint = (
+                "Use search snippets as leads, not final proof where a page can be opened. "
+                "Use internet_read on promising URLs, or search again with a more precise query."
+            )
+        elif tool == "internet_read":
+            if not allow_internet:
+                raise ValueError("Internet Research skill is not enabled.")
+            result = read_internet(decision["url"], decision.get("focus") or "")
+            tool_runs.append(
+                {
+                    "tool": tool,
+                    "url": result["url"],
+                    "title": result["title"],
+                    "purpose": decision.get("purpose") or "",
+                }
+            )
+            tool_request = {
+                "kind": "tool",
+                "tool": tool,
+                "url": decision["url"],
+                "focus": decision.get("focus") or "",
+                "purpose": decision.get("purpose") or "",
+            }
+            result_label = "INTERNET_READ_RESULT"
+            next_hint = (
+                "Use this page as external evidence. Cite its URL in the final answer. "
+                "Continue researching if the join or field relationship is still uncertain."
+            )
+        else:
+            raise ValueError(f"Unsupported schema chat tool: {tool}")
 
         working.append(
             {
                 "role": "assistant",
-                "content": json.dumps(
-                    {
-                        "kind": "tool",
-                        "tool": "local_schema_select",
-                        "sql": sql,
-                        "purpose": decision.get("purpose") or "",
-                    },
-                    ensure_ascii=False,
-                ),
+                "content": json.dumps(tool_request, ensure_ascii=False),
             }
         )
         working.append(
             {
                 "role": "user",
                 "content": (
-                    "LOCAL_SCHEMA_SELECT_RESULT\n"
+                    result_label
+                    + "\n"
                     + json.dumps(result, ensure_ascii=False, default=str)
-                    + "\n\nUse this result as evidence. Run another local_schema_select if useful, "
-                    "otherwise return your final answer."
+                    + "\n\n"
+                    + next_hint
+                    + " Otherwise return your final answer."
                 ),
             }
         )
 
-    raise ValueError("Schema Chat reached the local SELECT tool-call limit before producing an answer.")
+    raise ValueError("Schema Chat reached the tool-call limit before producing an answer.")
 
 
 def get_llm_settings(conn):
@@ -3406,12 +3493,17 @@ def api_schema_chat():
         context = schema_context_text(conn, include_relationships=True)
         active_skills = ai_skill_rows(conn, enabled_only=True)
         skills_context = ai_skill_context(active_skills)
+        internet_enabled = any(row["skill_key"] == "internet-research" for row in active_skills)
 
         system = """You are QueryBridge, a local schema assistant.
 You analyse the schema CAPTURED LOCALLY inside QueryBridge. You do not connect to Databricks and you do not claim to have queried live Databricks data.
 
 Use the supplied QueryBridge schema, relationships, Markdown knowledge and enabled AI skills.
-You have one read-only analysis tool named local_schema_select. It runs SELECT statements only against an isolated in-memory copy of QueryBridge's local schema metadata.
+You have a read-only local analysis tool named local_schema_select. It runs SELECT statements only against an isolated in-memory copy of QueryBridge's local schema metadata.
+
+When the Internet Research skill is enabled, you also have:
+- internet_search: searches public internet sources and returns ranked result titles, URLs and snippets;
+- internet_read: opens a public result URL and returns focused evidence passages.
 
 Use local_schema_select whenever querying the local metadata would improve accuracy—for example:
 - find all fields with names containing supplier, project, PO, PR, WBS or dates;
@@ -3423,7 +3515,9 @@ Use local_schema_select whenever querying the local metadata would improve accur
 - identify tables with no relationships;
 - investigate likely join candidates.
 
-You may run several SELECT statements before answering.
+You may run several tool calls before answering.
+If the local schema/knowledge does not contain enough evidence for a table relationship, field meaning or join, use internet_search rather than guessing. For SAP questions, prefer official SAP documentation where available, then established SAP technical references. Internet evidence may explain standard SAP semantics, but it must never be used to pretend an uncaptured local field exists.
+When you use internet evidence, include the source URLs in the final Markdown answer and state any remaining uncertainty.
 
 For every turn, return JSON only in one of these forms.
 
@@ -3433,6 +3527,23 @@ To run a local SELECT:
   "tool": "local_schema_select",
   "sql": "SELECT ...",
   "purpose": "short reason for this query"
+}
+
+To search the internet:
+{
+  "kind": "tool",
+  "tool": "internet_search",
+  "query": "SAP EKPO WBS element field join PR PO",
+  "purpose": "find documentation for a missing SAP relationship"
+}
+
+To read a search result:
+{
+  "kind": "tool",
+  "tool": "internet_read",
+  "url": "https://...",
+  "focus": "EKPO WBS element field and relationship",
+  "purpose": "verify the field semantics from the source"
 }
 
 To answer:
@@ -3485,7 +3596,12 @@ When drafting Databricks SQL for the user, clearly distinguish that draft SQL fr
             (question, now_iso()),
         )
 
-        answer, tool_runs = run_schema_chat_agent(conn, messages, max_tool_calls=6)
+        answer, tool_runs = run_schema_chat_agent(
+            conn,
+            messages,
+            max_tool_calls=8,
+            allow_internet=internet_enabled,
+        )
 
         conn.execute(
             """
