@@ -1181,6 +1181,7 @@ def create_ai_schema_proposal(conn, request_text, selected_skill_keys=None):
     skills = [row for row in all_skills if not selected or row["skill_key"] in selected]
     if not skills:
         raise ValueError("No enabled AI skills are selected.")
+    internet_enabled = any(row["skill_key"] == "internet-research" for row in all_skills)
 
     context = schema_context_text(conn, include_relationships=True, max_chars=70000)
     settings = get_llm_settings(conn)
@@ -1188,6 +1189,18 @@ def create_ai_schema_proposal(conn, request_text, selected_skill_keys=None):
     system = """You are QueryBridge's governed schema-change planner.
 You work only on QueryBridge's LOCAL metadata model; you are not modifying live Databricks.
 Use the supplied skills, schema and knowledge. Return JSON only.
+
+You may use tools before returning the final proposal.
+- local_schema_select: query the isolated local schema metadata with read-only SELECT statements.
+- internet_search: search public internet sources when local metadata/knowledge is insufficient.
+- internet_read: open a public search result and extract focused evidence.
+
+For a tool call, return one of these JSON structures instead of the final proposal:
+{"kind":"tool","tool":"local_schema_select","sql":"SELECT ...","purpose":"..."}
+{"kind":"tool","tool":"internet_search","query":"...","purpose":"..."}
+{"kind":"tool","tool":"internet_read","url":"https://...","focus":"...","purpose":"..."}
+
+Use internet research instead of guessing when a relationship depends on missing table/field semantics. For SAP joins, prefer official SAP documentation where available and established SAP technical references next. External research can justify the semantics of captured fields, but operations may only reference captured local tables/fields unless the requested operation is explicitly adding a new object. Include useful source URLs in the final summary when web research influenced a proposal.
 
 Supported operations:
 - add_table: table_name, optional schema_name/catalog/table_type, reason
@@ -1235,13 +1248,26 @@ Rules:
         + context
     )
 
-    raw = call_llm(
+    raw, research_runs = run_schema_chat_agent(
         conn,
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        json_mode=True,
+        max_tool_calls=8,
+        allow_internet=internet_enabled,
     )
     parsed = extract_json_payload(raw)
     proposal = normalise_ai_operations(parsed)
+    researched_urls = list(dict.fromkeys(
+        item.get("url")
+        for item in research_runs
+        if item.get("tool") == "internet_read" and item.get("url")
+    ))
+    if researched_urls:
+        proposal["summary"] = (
+            proposal["summary"]
+            + ("\n\n" if proposal["summary"] else "")
+            + "Internet evidence reviewed:\n"
+            + "\n".join(f"- {url}" for url in researched_urls)
+        )[:4000]
     checked = validate_schema_operations(conn, proposal["operations"])
 
     valid_operations = [item["operation"] for item in checked if item["valid"]]
