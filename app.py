@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, Response, flash, jsonify, redirect, render_template, request, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from internet_research import read_internet, search_internet
 
@@ -22,6 +23,8 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "instance" / "querybridge.db"
 
 app = Flask(__name__)
+# Trust UDA/Caddy's single proxy hop only; prevent untrusted direct ingress.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 app.secret_key = "querybridge-local-dev"
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
