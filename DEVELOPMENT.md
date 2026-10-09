@@ -47,6 +47,16 @@ For coding work, an empty result, no write/edit action, unchanged branch HEAD, e
 
 ## Development ledger
 
+### OPS-UDA-001 — UDA application subpath
+Status: 🔨 IN PROGRESS
+Scope: registered QueryBridge application only.
+Changes: Flask single-hop trusted forwarded prefix; Jinja page base and static routing; same-origin API fetch adapter.
+Security: backend ingress must be proxy-restricted. No UDA public proxy enablement.
+Evidence: `tests/test_uda_subpath.py` and `.github/workflows/uda-tests.yml`; awaiting CI.
+- [ ] Full CI passes and merged into main for UDA deployment
+- [ ] User verifies GUI, AI chat, schema capture and SQL generation through UDA
+
+
 ### DEV-000 — Establish evidence-based development ledger
 
 Status: ✅ COMPLETE
