@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import json
 import re
 import sqlite3
@@ -11,7 +12,7 @@ import markdown as markdown_lib
 import sqlglot
 from sqlglot import exp
 from markupsafe import Markup, escape
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from flask import Flask, Response, flash, jsonify, redirect, render_template, request, url_for
@@ -25,7 +26,11 @@ DB_PATH = BASE_DIR / "instance" / "querybridge.db"
 app = Flask(__name__)
 # Trust UDA/Caddy's single proxy hop only; prevent untrusted direct ingress.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
-app.secret_key = "querybridge-local-dev"
+app.secret_key = os.environ.get("QUERYBRIDGE_SESSION_SECRET") or "querybridge-local-dev"
+app.permanent_session_lifetime = timedelta(hours=4)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("QUERYBRIDGE_COOKIE_SECURE", "0") == "1"
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 
@@ -155,6 +160,16 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'proposed',
             created_at TEXT NOT NULL,
             reviewed_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS qb_admin_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER,
+            before_json TEXT,
+            after_json TEXT,
+            created_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS qb_relationship_settings (
@@ -4841,6 +4856,10 @@ def api_build_sql():
     sql_lines.append(";")
     conn.close()
     return jsonify({"sql": "\n".join(sql_lines), "joins": join_notes})
+
+
+from admin_console import create_admin_blueprint
+app.register_blueprint(create_admin_blueprint(db, now_iso))
 
 
 if __name__ == "__main__":
