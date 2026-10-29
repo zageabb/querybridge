@@ -265,3 +265,45 @@ Completion criteria:
 - [x] CI checks pass.
 - [x] PR merged into main.
 - [ ] Deployed UI confirmed by user.
+
+
+### DEV-004 — Fix Admin security-token error in UDA deployment
+
+Status: 🔨 IN PROGRESS
+Priority: High
+Owner/Agent: ChatGPT
+Branch: fix/admin-csrf-worker-safe
+Depends on: DEV-003 password-free Admin
+Integration status: implementation/testing in progress
+
+Observed:
+User reported "Invalid administration security token. Reload Admin and retry."
+after removal of Admin password. The prior implementation stored the anti-CSRF
+token in a signed Flask session while app.py now generates random signing
+secrets per process by default. Different workers may reject each other's
+session cookie; a missing/undelivered cookie can yield the same symptom.
+
+Implementation:
+- Use a dedicated double-submit CSRF cookie and matching request header in
+  Admin, independent of Flask's session-signing key.
+- Scope the cookie to the app's UDA forwarded mount path; mark HttpOnly and
+  SameSite=Lax, Secure for HTTPS.
+- Check same-origin browser request headers when present; continue rejecting
+  missing/mismatched tokens.
+- Keep password-free Admin, existing validation, audit and delete prompts.
+- Add regression for different worker secrets and reverse-proxy cookie path.
+
+Evidence:
+- Files: admin_console.py, tests/test_admin.py, README.md.
+- Tests: pending GitHub Actions; test for secret rotation and forwarded path.
+- CI: pending.
+- PR: pending.
+- Merged to main: no.
+- User acceptance: pending after UDA deployment.
+
+Completion criteria:
+- [x] Code and regression tests added.
+- [ ] Tests pass.
+- [ ] Both CI workflows green.
+- [ ] PR merged to main.
+- [ ] User verifies editing in deployed Admin.
