@@ -282,9 +282,12 @@ may still refer to renamed or deleted metadata.
 The Admin screen **inherits QueryBridge's existing network/application access**.
 Anyone who can reach QueryBridge can open Admin and modify local metadata. Do not
 expose QueryBridge directly to the public internet; restrict access at the existing
-UDA/Caddy proxy or your private network. The Admin API retains browser-session
-CSRF validation for write requests, with a token issued automatically when the
-Admin page is opened. **No admin password or configuration is required.**
+UDA/Caddy proxy or your private network. The Admin API uses a dedicated browser cookie with an anti-CSRF token
+sent by the page on write requests. This does not depend on a Flask session
+or an application-wide signing secret. The cookie is scoped to QueryBridge's
+UDA path, including when the application runs behind a reverse proxy.
+Cross-origin administration changes are rejected. **No admin password
+or configuration is required.**
 
 An optional QUERYBRIDGE_SESSION_SECRET environment variable provides a stable
 Flask session signing key across restarts and multiple workers; otherwise a strong
