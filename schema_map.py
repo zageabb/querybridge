@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request
+from schema_graphviz import dot_graph, render_svg
 
 bp = Blueprint("schema_map", __name__)
 _database = None
@@ -178,3 +179,47 @@ def schema_map_data():
         })
     finally:
         conn.close()
+
+
+@bp.get("/api/schema-map/diagram")
+def diagram():
+    """Draw the same filtered graph as the browser's JSON API."""
+    output_format = request.args.get("format", "svg")
+    mode = request.args.get("mode", "overview")
+    if output_format not in ("svg", "dot") or mode not in ("overview", "detail"):
+        return jsonify({"ok": False, "error": "Unsupported diagram format or view."}), 400
+    raw_highlight = request.args.get("highlight_field", "").strip()
+    try:
+        highlighted = int(raw_highlight) if raw_highlight else None
+        if highlighted is not None and highlighted < 1:
+            raise ValueError
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid field selection."}), 400
+
+    result = schema_map_data()
+    if isinstance(result, tuple):
+        return result
+    payload = result.get_json()
+    if len(payload["tables"]) > 250:
+        return jsonify({
+            "ok": False,
+            "error": "More than 250 tables are selected. Filter by application or choose a focus table.",
+        }), 422
+    field_ids = {c["id"] for t in payload["tables"] for c in t["fields"]}
+    if highlighted is not None and highlighted not in field_ids:
+        return jsonify({"ok": False, "error": "Selected field is outside the diagram."}), 400
+    source = dot_graph(payload, mode=mode, highlight_field=highlighted)
+    if output_format == "dot":
+        response = Response(source, mimetype="text/vnd.graphviz")
+    else:
+        try:
+            svg = render_svg(source)
+        except RuntimeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 503
+        response = Response(svg, mimetype="image/svg+xml")
+        response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
+    response.headers["Cache-Control"] = "no-store"
+    if request.args.get("download") == "1":
+        ext = "svg" if output_format == "svg" else "dot"
+        response.headers["Content-Disposition"] = f'attachment; filename="querybridge-schema.{ext}"'
+    return response
