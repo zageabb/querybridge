@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import secrets
 import json
 import re
 import sqlite3
@@ -26,7 +27,9 @@ DB_PATH = BASE_DIR / "instance" / "querybridge.db"
 app = Flask(__name__)
 # Trust UDA/Caddy's single proxy hop only; prevent untrusted direct ingress.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
-app.secret_key = os.environ.get("QUERYBRIDGE_SESSION_SECRET") or "querybridge-local-dev"
+# Use a strong per-process secret by default; no admin setup is required.
+# QUERYBRIDGE_SESSION_SECRET remains optional for stable sessions across restarts/workers.
+app.secret_key = os.environ.get("QUERYBRIDGE_SESSION_SECRET") or secrets.token_hex(32)
 app.permanent_session_lifetime = timedelta(hours=4)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"

@@ -1,4 +1,4 @@
-"""Authenticated administration of QueryBridge's LOCAL schema metadata.
+"""Administration of QueryBridge's LOCAL schema metadata.
 
 This UI never opens a Databricks connection or alters physical Databricks tables.
 It edits only qb_tables, qb_columns and qb_relationships in local SQLite.
@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import hmac
 import json
-import os
 import re
 import secrets
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, jsonify, render_template, request, session
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 _db = None
@@ -25,18 +24,6 @@ def create_admin_blueprint(db_func, now_func):
     global _db, _now
     _db, _now = db_func, now_func
     return bp
-
-
-def admin_ready():
-    """Fail closed unless both the admin password and a unique signing key exist."""
-    return (
-        len(os.environ.get("QUERYBRIDGE_ADMIN_PASSWORD", "")) >= 12
-        and len(os.environ.get("QUERYBRIDGE_SESSION_SECRET", "")) >= 32
-    )
-
-
-def admin_authenticated():
-    return admin_ready() and session.get("querybridge_admin") is True
 
 
 def error(message, status=400):
@@ -103,50 +90,25 @@ def log_change(conn, action, entity, identifier, before=None, after=None):
 
 @bp.before_request
 def guard():
-    if request.endpoint in ("admin.dashboard", "admin.login"):
-        return None
-    if not admin_authenticated():
-        return error("Administrator login required or admin configuration is disabled.", 401)
-    if request.method != "GET":
+    # Admin is open to everyone who can already reach QueryBridge.
+    # Keep CSRF validation for mutations so unrelated websites cannot
+    # submit database changes via the user's browser.
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
         supplied = request.headers.get("X-CSRF-Token") or request.form.get("csrf", "")
         expected = session.get("querybridge_csrf", "")
         if not supplied or not expected or not hmac.compare_digest(supplied, expected):
-            return error("Invalid administration security token.", 403)
+            return error("Invalid administration security token. Reload Admin and retry.", 403)
     return None
 
 
 @bp.get("")
 @bp.get("/")
 def dashboard():
-    return render_template(
-        "admin.html",
-        ready=admin_ready(),
-        authenticated=admin_authenticated(),
-        csrf_token=session.get("querybridge_csrf", "") if admin_authenticated() else "",
-    )
-
-
-@bp.post("/login")
-def login():
-    if not admin_ready():
-        flash("Admin is disabled. Configure QUERYBRIDGE_ADMIN_PASSWORD and QUERYBRIDGE_SESSION_SECRET.", "error")
-        return redirect(url_for("admin.dashboard"))
-    supplied = request.form.get("password", "")
-    actual = os.environ.get("QUERYBRIDGE_ADMIN_PASSWORD", "")
-    if not hmac.compare_digest(supplied, actual):
-        flash("Incorrect administrator password.", "error")
-        return redirect(url_for("admin.dashboard"))
-    session.clear()
-    session["querybridge_admin"] = True
-    session["querybridge_csrf"] = secrets.token_urlsafe(32)
-    session.permanent = True
-    return redirect(url_for("admin.dashboard"))
-
-
-@bp.post("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("admin.dashboard"))
+    token = session.get("querybridge_csrf")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["querybridge_csrf"] = token
+    return render_template("admin.html", csrf_token=token)
 
 
 @bp.get("/api/overview")

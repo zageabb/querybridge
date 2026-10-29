@@ -1,4 +1,4 @@
-"""Security, CRUD, integrity and reverse-proxy checks for metadata administration."""
+"""No-login Admin, CSRF, integrity and reverse-proxy checks."""
 import pytest
 
 import app as qb
@@ -7,19 +7,21 @@ import app as qb
 @pytest.fixture()
 def client(monkeypatch, tmp_path):
     monkeypatch.setattr(qb, "DB_PATH", tmp_path / "admin.db")
-    monkeypatch.setenv("QUERYBRIDGE_ADMIN_PASSWORD", "long-testing-password-2026")
-    monkeypatch.setenv("QUERYBRIDGE_SESSION_SECRET", "a-unique-test-signing-key-longer-than-32-chars")
-    qb.app.secret_key = "a-unique-test-signing-key-longer-than-32-chars"
+    # The Admin screen must work without either old setup variable.
+    monkeypatch.delenv("QUERYBRIDGE_ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("QUERYBRIDGE_SESSION_SECRET", raising=False)
     qb.app.config.update(TESTING=True)
     qb.init_db()
     yield qb.app.test_client()
 
 
-def login(client):
-    assert client.post("/admin/login", data={"password": "wrong-password"}).status_code == 302
-    assert client.get("/admin/api/overview").status_code == 401
-    response = client.post("/admin/login", data={"password": "long-testing-password-2026"})
-    assert response.status_code == 302
+def csrf_for(client):
+    # Opening Admin directly issues the existing session its anti-CSRF token.
+    page = client.get("/admin")
+    assert page.status_code == 200
+    assert b"Metadata Administration" in page.data
+    assert b"Sign in" not in page.data
+    assert b"QUERYBRIDGE_ADMIN_PASSWORD" not in page.data
     with client.session_transaction() as sess:
         return sess["querybridge_csrf"]
 
@@ -32,18 +34,22 @@ def change(client, token, action, data):
     )
 
 
-def test_admin_disabled_without_environment(client, monkeypatch):
-    monkeypatch.delenv("QUERYBRIDGE_ADMIN_PASSWORD")
-    assert b"access not configured" in client.get("/admin").data.lower()
-    assert client.get("/admin/api/overview").status_code == 401
-    assert client.post("/admin/login", data={"password": "anything"}).status_code == 302
-
-
-def test_login_csrf_and_uda_prefix(client):
-    assert client.get("/admin/api/overview").status_code == 401
-    assert client.post("/admin/api/change", json={"action": "create_table", "data": {}}).status_code == 401
-    token = login(client)
+def test_admin_opens_without_password_or_setup(client):
     assert client.get("/admin/api/overview").status_code == 200
+    assert client.get("/admin/login").status_code == 404
+    assert client.post("/admin/login", data={"password": "unused"}).status_code == 404
+    assert client.post("/admin/logout").status_code == 404
+    assert client.post("/admin/api/change", json={"action": "create_table", "data": {}}).status_code == 403
+    token = csrf_for(client)
+    assert token
+    assert change(client, token, "create_table", {"table_name": "new_table"}).status_code == 200
+    assert client.get("/admin/api/overview").json["stats"]["tables"] == 1
+
+
+def test_csrf_protects_writes_and_uda_prefix(client):
+    assert client.get("/admin/api/overview").status_code == 200
+    assert client.post("/admin/api/change", json={"action": "create_table", "data": {}}).status_code == 403
+    token = csrf_for(client)
     assert client.post("/admin/api/change", json={"action": "create_table", "data": {}}).status_code == 403
     assert client.post(
         "/admin/api/change", json={"action": "create_table", "data": {}},
@@ -59,12 +65,10 @@ def test_login_csrf_and_uda_prefix(client):
     assert b'<base href="/apps/querybridge/">' in result.data
     assert b"/apps/querybridge/static/admin.js" in result.data
     assert change(client, token, "not-supported", {}).status_code == 400
-    assert client.post("/admin/logout", data={"csrf": token}).status_code == 302
-    assert client.get("/admin/api/overview").status_code == 401
 
 
 def test_full_metadata_admin_workflow(client):
-    token = login(client)
+    token = csrf_for(client)
 
     def create_table(name):
         result = change(client, token, "create_table", {
@@ -153,7 +157,7 @@ def test_full_metadata_admin_workflow(client):
 
 
 def test_admin_operations_do_not_modify_saved_schema_or_core_tables(client):
-    token = login(client)
+    token = csrf_for(client)
     conn = qb.db()
     conn.execute(
         """INSERT INTO qb_schema_snapshots(name, description, snapshot_json, created_at, updated_at)
@@ -172,7 +176,7 @@ def test_admin_operations_do_not_modify_saved_schema_or_core_tables(client):
 
 
 def test_invalid_inputs_never_change_local_schema(client):
-    token = login(client)
+    token = csrf_for(client)
     for payload in [
         {"table_name": ""},
         {"table_name": "name" + chr(10) + "other"},

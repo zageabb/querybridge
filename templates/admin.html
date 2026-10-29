@@ -32,32 +32,8 @@
             <h1>Metadata Administration</h1>
             <p>Review and maintain the application, table, field and relationship records held in QueryBridge's SQLite database.</p>
         </div>
-        {% if authenticated %}
-        <form method="post" action="{{ url_for('admin.logout') }}">
-            <input type="hidden" name="csrf" value="{{ csrf_token }}">
-            <button type="submit" class="secondary">Sign out</button>
-        </form>
-        {% endif %}
     </section>
     <div class="admin-warning"><strong>Local metadata only.</strong> Nothing on this screen changes physical tables in Databricks. Removing a local field or table also removes its locally recorded joins; named schema snapshots remain unchanged. Save a snapshot from Metadata before major edits.</div>
-    {% if not ready %}
-    <section class="panel admin-login">
-        <h2>Administrator access not configured</h2>
-        <p>The administration console is disabled until the server administrator sets <code>QUERYBRIDGE_ADMIN_PASSWORD</code> (at least 12 characters) and <code>QUERYBRIDGE_SESSION_SECRET</code> (at least 32 characters) in the application environment, then restarts QueryBridge.</p>
-        <p>Use a private reverse proxy with HTTPS for remote access. No default administrator password is supplied.</p>
-    </section>
-    {% elif not authenticated %}
-    <section class="panel admin-login">
-        <h2>Administrator sign in</h2>
-        <p>Changes to local schema metadata require an administrator session.</p>
-        <form method="post" action="{{ url_for('admin.login') }}">
-            <label>Password
-                <input type="password" name="password" minlength="12" autocomplete="current-password" required>
-            </label>
-            <button type="submit" class="primary">Sign in</button>
-        </form>
-    </section>
-    {% else %}
     <div id="admin-alert" class="admin-alert" role="status" aria-live="polite" hidden></div>
     <section class="admin-stats" id="admin-stats" aria-label="Metadata totals"></section>
     <div class="admin-grid">
@@ -143,7 +119,6 @@
     </div>
     <script>window.querybridgeAdminToken = {{ csrf_token | tojson }};</script>
     <script src="{{ url_for('static', filename='admin.js') }}"></script>
-    {% endif %}
 </main>
 </body>
 </html>
