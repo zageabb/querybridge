@@ -56,7 +56,7 @@
     app.replaceChildren();
     option(app, "", "All applications");
     names.forEach(name => option(app, name, name));
-    if (state.scope && state.scope.tables.some(t => !t.application_name)) option(app, "__unassigned__", "Unassigned");
+    if (state.scope && state.scope.has_unassigned) option(app, "__unassigned__", "Unassigned");
     app.value = previous;
   }
   function fillFocus(scope) {
