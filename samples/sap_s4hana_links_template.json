@@ -1,0 +1,189 @@
+{
+  "format": "querybridge-sap-links",
+  "format_version": 1,
+  "application": "SAP S/4HANA",
+  "description": "Starter SAP purchasing/material relationships using sap_* names seen in the user's QueryBridge capture. Candidate equality links only. For composite keys, include all key columns in real SQL (e.g., MANDT plus EBELN, or EBELN plus EBELP). Confirm each join against your SAP extraction before importing. No schema/catalog location or data types are assumed.",
+  "tables": [
+    {
+      "name": "sap_ekko",
+      "fields": [
+        "EBELN",
+        "LIFNR"
+      ]
+    },
+    {
+      "name": "sap_ekpo",
+      "fields": [
+        "EBELN",
+        "EBELP",
+        "MATNR"
+      ]
+    },
+    {
+      "name": "sap_lfa1",
+      "fields": [
+        "LIFNR"
+      ]
+    },
+    {
+      "name": "sap_eket",
+      "fields": [
+        "EBELN",
+        "EBELP"
+      ]
+    },
+    {
+      "name": "sap_ekbe",
+      "fields": [
+        "EBELN",
+        "EBELP"
+      ]
+    },
+    {
+      "name": "sap_mara",
+      "fields": [
+        "MATNR"
+      ]
+    },
+    {
+      "name": "sap_makt",
+      "fields": [
+        "MATNR"
+      ]
+    },
+    {
+      "name": "sap_ekes",
+      "fields": [
+        "EBELN",
+        "EBELP"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "left": {
+        "table": "sap_ekko",
+        "field": "EBELN"
+      },
+      "right": {
+        "table": "sap_ekpo",
+        "field": "EBELN"
+      },
+      "confidence": 0.95,
+      "reason": "Purchase header -> PO item document ID (include SAP client key where relevant)."
+    },
+    {
+      "left": {
+        "table": "sap_ekko",
+        "field": "LIFNR"
+      },
+      "right": {
+        "table": "sap_lfa1",
+        "field": "LIFNR"
+      },
+      "confidence": 0.85,
+      "reason": "Purchase header -> supplier general data by supplier ID (check client and S/4HANA Business Partner mapping)."
+    },
+    {
+      "left": {
+        "table": "sap_ekpo",
+        "field": "EBELN"
+      },
+      "right": {
+        "table": "sap_eket",
+        "field": "EBELN"
+      },
+      "confidence": 0.85,
+      "reason": "PO item -> schedule line: document component; pair with EBELP and client key."
+    },
+    {
+      "left": {
+        "table": "sap_ekpo",
+        "field": "EBELP"
+      },
+      "right": {
+        "table": "sap_eket",
+        "field": "EBELP"
+      },
+      "confidence": 0.85,
+      "reason": "PO item -> schedule line: item component; pair with EBELN and client key."
+    },
+    {
+      "left": {
+        "table": "sap_ekpo",
+        "field": "EBELN"
+      },
+      "right": {
+        "table": "sap_ekbe",
+        "field": "EBELN"
+      },
+      "confidence": 0.85,
+      "reason": "PO item -> purchasing history: document component; pair with EBELP and client key."
+    },
+    {
+      "left": {
+        "table": "sap_ekpo",
+        "field": "EBELP"
+      },
+      "right": {
+        "table": "sap_ekbe",
+        "field": "EBELP"
+      },
+      "confidence": 0.85,
+      "reason": "PO item -> purchasing history: item component; pair with EBELN and client key."
+    },
+    {
+      "left": {
+        "table": "sap_ekpo",
+        "field": "MATNR"
+      },
+      "right": {
+        "table": "sap_mara",
+        "field": "MATNR"
+      },
+      "confidence": 0.85,
+      "reason": "PO item -> material master by material number; check client and material normalization."
+    },
+    {
+      "left": {
+        "table": "sap_mara",
+        "field": "MATNR"
+      },
+      "right": {
+        "table": "sap_makt",
+        "field": "MATNR"
+      },
+      "confidence": 0.9,
+      "reason": "Material master -> description by material number; select language via SPRAS as needed."
+    },
+    {
+      "left": {
+        "table": "sap_ekpo",
+        "field": "EBELN"
+      },
+      "right": {
+        "table": "sap_ekes",
+        "field": "EBELN"
+      },
+      "confidence": 0.8,
+      "reason": "PO item -> supplier confirmations: document component; pair with EBELP and client key."
+    },
+    {
+      "left": {
+        "table": "sap_ekpo",
+        "field": "EBELP"
+      },
+      "right": {
+        "table": "sap_ekes",
+        "field": "EBELP"
+      },
+      "confidence": 0.8,
+      "reason": "PO item -> supplier confirmations: item component; pair with EBELN and client key."
+    }
+  ],
+  "references": [
+    "https://help.sap.com/docs/PRODUCT_ID/45e4eda3753c458ead20c81f77c55921/e2487053bbe77c1ee10000000a174cb4.html",
+    "https://help.sap.com/docs/SAP_DATA_SERVICES/8df1dcdec88b4df2afc3eb1cc954b3dc/578399426d6d1014b3fc9283b0e91070.html",
+    "https://help.sap.com/saphelp_em700_ehp01/helpdata/en/31/083f3f2615e07fe10000000a114084/content.htm?no_cache=true"
+  ]
+}

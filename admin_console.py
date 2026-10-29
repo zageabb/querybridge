@@ -9,8 +9,10 @@ import hmac
 import json
 import re
 import secrets
+from pathlib import Path
 
-from flask import Blueprint, jsonify, make_response, render_template, request
+from flask import Blueprint, jsonify, make_response, render_template, request, send_file
+from sap_links_import import plan_import, apply_import
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 ADMIN_CSRF_COOKIE = "qb_admin_csrf"
@@ -127,6 +129,55 @@ def dashboard():
         samesite="Lax",
     )
     return response
+
+
+@bp.get("/api/sap-links/template")
+def sap_links_template():
+    return send_file(
+        Path(__file__).resolve().parent / "samples" / "sap_s4hana_links_template.json",
+        mimetype="application/json",
+        as_attachment=True,
+        download_name="sap_s4hana_links_template.json",
+    )
+
+
+@bp.post("/api/sap-links/preview")
+def preview_sap_links():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("document"), dict):
+        return error("Select a valid SAP relationships JSON file.")
+    conn = _db()
+    try:
+        preview = plan_import(conn, payload["document"])
+        return jsonify({"ok": True, "preview": preview})
+    except (ValueError, TypeError) as exc:
+        return error(str(exc))
+    finally:
+        conn.close()
+
+
+@bp.post("/api/sap-links/apply")
+def import_sap_links():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("document"), dict):
+        return error("Select a valid SAP relationships JSON file.")
+    if payload.get("confirm") is not True:
+        return error("Confirm the import after reviewing the preview.")
+    conn = _db()
+    try:
+        with conn:
+            preview = apply_import(conn, payload["document"], _now())
+            log_change(
+                conn, "import_sap_links", "sap_import", None,
+                after={"application": preview["application"], "counts": preview["counts"]},
+            )
+        return jsonify({"ok": True, "result": preview})
+    except (ValueError, TypeError) as exc:
+        return error(str(exc))
+    except Exception:
+        return error("SAP import was rolled back because the database rejected it.", 409)
+    finally:
+        conn.close()
 
 
 @bp.get("/api/overview")

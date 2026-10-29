@@ -398,3 +398,52 @@ Completion criteria:
 - [x] CI green before merge.
 - [x] PR merged into main.
 - [ ] User verifies proposal #8 warning removed and app-specific review accurate.
+
+
+
+### DEV-007 — Actual schema answers and SAP link imports
+
+Status: IN PROGRESS
+Priority: High
+Owner/Agent: ChatGPT
+Branch: fix/ai-schema-informational-answers
+Depends on: DEV-006 application metadata, Admin and schema proposal validation
+Integration status: feature branch; CI and merge pending
+
+Observed:
+AI Skills "List of tables" produced proposal #9 with a generic "no schema
+changes required" statement, not an answer with the actual captured tables.
+Its no-op proposal displayed a disabled Apply button. Subsequent user request
+requires an SAP S/4HANA relationship import format that can add missing
+tables/fields to the working subset without assigning a schema or saving a
+schema snapshot.
+
+Implemented:
+- Separate read-only Ask about schema from Generate change proposal, with
+  distinct history/status and no Apply for read-only answers.
+- Local deterministic table inventory responses, optionally filtered by
+  application, with field/join counts and no Ollama dependency.
+- Other informational questions use a read-only LLM prompt.
+- Backward-compatible request_kind/request_text migration on proposals.
+- Dedicated SAP JSON manifest, sample purchasing/supplier relationship data,
+  upload preview and explicit confirm in Admin.
+- Atomic, idempotent import of missing local tables/fields/links. Newly added
+  tables have NULL catalog/schema and SAP S/4HANA application; existing data
+  and named snapshots remain unchanged.
+- Admin CSRF and audit preserved.
+
+Evidence:
+- Files: app.py, schema_answers.py, sap_links_import.py, admin_console.py,
+  templates/ai_skills.html, templates/admin.html, static/sap-links.js,
+  static/style.css, samples/sap_s4hana_links_template.json,
+  tests/test_schema_answers_and_sap_import.py, README.md, CI workflow.
+- CI: pending.
+- PR: pending.
+- Merge to main: pending.
+- UDA user acceptance: pending.
+
+Completion criteria:
+- [x] Code, sample and tests added.
+- [ ] Full tests and CI green.
+- [ ] PR merged into main.
+- [ ] User verifies file import, table listing and missing metadata in deployed UDA.
