@@ -178,13 +178,13 @@ The optional application label is intentionally separate from Databricks catalog
 
 ### DEV-002 — Authenticated local metadata administration
 
-Status: 🔨 IN PROGRESS
+Status: ⏳ AWAITING ACCEPTANCE
 Priority: High
 Owner/Agent: ChatGPT
 Branch: feature/metadata-admin-console
 Depends on: DEV-001 Schema Explorer and current SQLite schema
 Can run in parallel with: changes outside schema metadata/navigation
-Integration status: feature branch; validation, PR and merge pending
+Integration status: merged into main via PR #3; user deployment/acceptance pending
 
 Requirement:
 Provide an administrative data overview and controlled create, update, delete capabilities
@@ -205,17 +205,17 @@ Evidence:
   static/style.css, tests/test_admin.py, navigation templates, README.md.
 - Tests: tests/test_admin.py for login, disabled mode, CSRF, UDA subpath,
   CRUD, join direction, deletion impacts, audit and input validation.
-- CI: pending.
-- PR: pending.
-- Merged to main: no.
+- CI: QueryBridge Python Check (pytest + JS syntax) and UDA Compatibility passed on PR #3.
+- PR: https://github.com/zageabb/querybridge/pull/3
+- Merged to main: yes (squash commit cef1f09a57ced42bbf7b7f871d412abbee958135).
 - User acceptance: pending.
 
 Completion criteria:
 - [x] Backend and frontend implemented on feature branch.
 - [x] Tests written.
-- [ ] Automated tests pass.
-- [ ] CI checks pass.
-- [ ] PR merged into main.
+- [x] Automated tests pass.
+- [x] CI checks pass.
+- [x] PR merged into main.
 - [ ] Admin verifies UI and database data on deployed installation.
 
 Notes:
