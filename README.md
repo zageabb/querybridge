@@ -369,3 +369,77 @@ previously saved no-operation reviews when the page reloads. For proposals
 with actual invalid or outdated operations, the page shows the validation
 reason and keeps Apply disabled. The server rejects direct attempts to apply
 empty proposals while retaining review history and approval requirements.
+
+
+
+## Ask questions about schema (without creating a change proposal)
+
+On **AI Skills**, choose **Ask about schema** for read-only questions, or
+**Generate change proposal** when you want edits reviewed before application.
+Answers are saved in the same history but have an **answer** status and no
+Apply button; use Dismiss when finished.
+
+Straightforward table inventory requests such as **List of tables**, **Show
+all tables** and **List tables for SAP S/4HANA** are answered by reading
+QueryBridge's SQLite working schema directly, without relying on the LLM's
+interpretation or requiring Ollama to be online. Results show table names,
+application labels, catalog/schema (if known), and counts of fields and saved
+joins. Long results are bounded to 500 displayed tables; Schema Explorer
+remains available for complete browsing.
+
+Other questions use the configured LLM as a read-only schema assistant. That
+assistant is directed to answer the actual information request, using the
+local SQL metadata tool where needed, rather than reporting that no schema
+changes were necessary. Information requests do not create or apply schema
+changes. Original change-proposal workflow remains governed and unchanged,
+including older saved proposals (which can be dismissed normally).
+
+## Import SAP S/4HANA table links into the current subset
+
+Open **Admin → SAP S/4HANA relationship import**, and download the starter
+JSON file. The same file is stored in
+`samples/sap_s4hana_links_template.json` in this repository.
+
+The format is **querybridge-sap-links, version 1** and includes:
+- `application`: must be `SAP S/4HANA`;
+- `tables`: optional table definitions and field names. Fields can be strings
+  or objects with `name` and optional `data_type`;
+- `links`: individual equality join candidates with `left` and `right`
+  objects containing `table` and `field`, and optional `confidence`
+  (number from 0 to 1) and `reason`.
+
+Example link:
+
+    {
+      "left": {"table": "EKKO", "field": "EBELN"},
+      "right": {"table": "EKPO", "field": "EBELN"},
+      "confidence": 0.95,
+      "reason": "Purchasing header to purchasing item"
+    }
+
+To import:
+
+1. Edit the starter JSON with the SAP tables, fields and links you actually
+   want. **Review and validate the sample joins against your SAP extraction
+   before using them**, including client-key (e.g. MANDT) conditions and
+   S/4HANA Business Partner transformations.
+2. Select it in Admin and click **Preview import**. QueryBridge lists new
+   tables, fields and joins, and identifies existing joins to skip.
+3. Click **Confirm and import** and approve the confirmation dialog. The
+   changes appear in Schema Explorer and Schema Map.
+
+If a referenced table or field is missing from your **current local subset**,
+QueryBridge adds it so the relationship can be represented. **New tables are
+labelled SAP S/4HANA but have NULL Catalog and NULL Schema**; the importer
+does not invent Databricks locations or field types. Existing tables and
+fields are reused unchanged, even if their application is currently blank.
+Ambiguous duplicate table names fail validation rather than guessing.
+
+The import is additive, idempotent, and atomic. It records the source
+`sap-import` on new joins and logs the operation in Admin audit. Repeating the
+same file skips existing tables, fields and relationships. **No named schema
+snapshot is created, updated or overwritten.** The importer does not connect
+to or modify SAP, Databricks or external data. It is available to anyone who
+can reach the existing password-free Admin screen, with the same CSRF
+validation. Files are limited to 1 MB in the browser and the importer
+enforces table/field/join counts server-side.
