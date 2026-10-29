@@ -311,12 +311,12 @@ Completion criteria:
 
 ### DEV-005 — Visual Schema Map with Graphviz field links and Mermaid export
 
-Status: 🔨 IN PROGRESS
+Status: ⏳ AWAITING ACCEPTANCE
 Priority: High
 Owner/Agent: ChatGPT
 Branch: feature/schema-relationship-map
 Depends on: DEV-001 Schema Explorer and captured metadata/joins
-Integration status: feature branch; validation, PR and merge pending
+Integration status: merged to main through PR #6; UDA user acceptance pending
 
 Requirement:
 Provide an overview of stored table relationships, a detailed field-level
@@ -341,14 +341,14 @@ Evidence:
   app.py, navigation templates, tests/test_schema_map.py,
   tests/test_schema_diagram.cjs, README.md, Python CI workflow.
 - Tests: new Graphviz API/UI/field ports/UDA tests and Node Mermaid generator tests.
-- CI: pending.
-- PR: pending.
-- Merged: no.
+- CI: QueryBridge Python Check (Graphviz, Node, pytest) and UDA Compatibility passed for e28c32635999001c7b5b8fdcf8fbd73b78ea613f.
+- PR: https://github.com/zageabb/querybridge/pull/6
+- Merged: yes; squash commit 6426330d23eb4eb7f5de3869d72a9decd87f4634.
 - User acceptance: pending on deployed Ubuntu app.
 
 Completion criteria:
 - [x] Implementation and tests written.
-- [ ] Automated tests green.
-- [ ] CI workflows green.
-- [ ] PR merged into main.
+- [x] Automated tests green.
+- [x] CI workflows green.
+- [x] PR merged into main.
 - [ ] User confirms diagram works with live metadata in UDA.
