@@ -76,7 +76,7 @@ def test_preview_does_not_write_and_import_creates_missing_without_catalog_or_sc
     tables = conn.execute(
         "SELECT table_name,application_name,catalog,schema_name FROM qb_tables ORDER BY table_name"
     ).fetchall()
-    assert [t["table_name"] for t in tables] == ["sap_ekbe", "sap_ekes", "sap_ekko", "sap_ekpo", "sap_eket", "sap_lfa1", "sap_makt", "sap_mara"]
+    assert [t["table_name"] for t in tables] == ["sap_ekbe", "sap_ekes", "sap_eket", "sap_ekko", "sap_ekpo", "sap_lfa1", "sap_makt", "sap_mara"]
     assert all(t["application_name"] == "SAP S/4HANA" for t in tables)
     assert all(t["catalog"] is None and t["schema_name"] is None for t in tables)
     assert conn.execute("SELECT COUNT(*) FROM qb_columns").fetchone()[0] == 14
