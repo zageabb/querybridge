@@ -32,6 +32,8 @@
     </div>
     <div class="schema-map-actions">
       <button id="map-copy" class="secondary small" type="button">Copy Mermaid</button>
+      <button id="map-export-svg" class="secondary small" type="button">Export SVG</button>
+      <button id="map-export-dot" class="secondary small" type="button">Export .dot</button>
       <button id="map-export" class="secondary small" type="button">Export .mmd</button>
     </div>
   </div>
@@ -47,6 +49,9 @@
     </label>
     <label>Focus
       <select id="map-focus"><option value="">All tables in scope</option></select>
+    </label>
+    <label id="map-field-label" hidden>Highlight linked field
+      <select id="map-field"><option value="">No field highlighted</option></select>
     </label>
     <label class="schema-map-check"><input type="checkbox" id="map-unjoined"> Show all tables, including unjoined</label>
     <label class="schema-map-check"><input type="checkbox" id="map-external"> Include linked tables from other applications</label>
@@ -65,11 +70,14 @@
         </div>
       </div>
       <div id="map-stage" class="schema-map-stage" tabindex="0" aria-label="Scroll to navigate diagram">
-        <div id="map-diagram" class="schema-map-diagram"></div>
+        <div id="map-diagram" class="schema-map-diagram">
+          <img id="map-image" alt="Graphviz network showing current schema relationships" hidden>
+          <div id="map-empty">Loading graph…</div>
+        </div>
       </div>
-      <p class="schema-map-legend">Solid lines = recorded joins · Dashed grey tables = no joins in the selected scope · Orange = linked table in another application. Links are undirected; they do not imply foreign-key cardinality.</p>
+      <p class="schema-map-legend">Lines = recorded joins · Grey tables = unjoined in the selected scope · Orange tables = linked tables in another application. In the detailed view, lines attach to the exact captured field rows. Cardinality is not assumed.</p>
       <details class="schema-map-source">
-        <summary>View Mermaid source</summary>
+        <summary>View Mermaid source (compatible with Mermaid Final)</summary>
         <pre id="map-source"></pre>
       </details>
     </section>
@@ -90,7 +98,6 @@
   </div>
 </main>
 <script src="{{ url_for('static', filename='schema-diagram.js') }}"></script>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.3/dist/mermaid.min.js" defer></script>
 <script src="{{ url_for('static', filename='schema-map.js') }}" defer></script>
 </body>
 </html>
