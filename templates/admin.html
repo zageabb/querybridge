@@ -118,8 +118,44 @@
             </div>
         </section>
     </div>
+    <section class="panel sap-import-panel" id="sap-link-import">
+        <div class="admin-section-header">
+            <div>
+                <h2>SAP S/4HANA relationship import</h2>
+                <p>Load a JSON list of SAP tables, fields and relationships into the current local subset.</p>
+            </div>
+            <a href="{{ url_for('static', filename='sap_s4hana_links_template.json') }}" download="sap_s4hana_links_template.json" class="secondary small">Download starter JSON</a>
+        </div>
+        <div class="admin-warning">
+            <strong>Additive and local only.</strong>
+            The preview will identify missing tables, fields and joins. New tables will be
+            marked <strong>SAP S/4HANA</strong> and will have no Catalog or Schema assigned.
+            Existing metadata is left unchanged. No schema snapshot is saved or overwritten.
+            Review the sample SAP joins before importing, including any client (MANDT) conditions.
+        </div>
+        <label>Choose SAP relationships JSON file
+            <input type="file" id="sap-import-file" accept=".json,application/json">
+        </label>
+        <div class="admin-actions">
+            <button type="button" id="sap-import-preview" class="secondary">Preview import</button>
+            <button type="button" id="sap-import-apply" class="primary" disabled>Confirm and import</button>
+        </div>
+        <p id="sap-import-status" role="status" aria-live="polite" class="muted"></p>
+        <div id="sap-import-results" hidden>
+            <h3>Changes to the current subset</h3>
+            <div id="sap-import-counts" class="sap-import-counts"></div>
+            <h4>Tables to create</h4>
+            <ul id="sap-import-tables"></ul>
+            <h4>Fields to create</h4>
+            <ul id="sap-import-fields"></ul>
+            <h4>Relationships to create</h4>
+            <ul id="sap-import-links"></ul>
+            <p id="sap-import-existing" class="muted"></p>
+        </div>
+    </section>
     <script>window.querybridgeAdminToken = {{ csrf_token | tojson }};</script>
     <script src="{{ url_for('static', filename='admin.js') }}"></script>
+    <script src="{{ url_for('static', filename='sap-links.js') }}"></script>
 </main>
 </body>
 </html>
