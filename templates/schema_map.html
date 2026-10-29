@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <base href="{{ url_for('index') }}">
+  <script src="{{ url_for('static', filename='uda-path.js') }}"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>QueryBridge – Schema Map</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div><div class="brand">QueryBridge</div><div class="subtitle">Visual relationships in the current working schema</div></div>
+  <nav>
+    <a href="{{ url_for('index') }}">Metadata</a>
+    <a href="{{ url_for('catalogue') }}">Schema Explorer</a>
+    <a class="active" href="{{ url_for('schema_map.screen') }}">Schema Map</a>
+    <a href="{{ url_for('builder') }}">Query Builder</a>
+    <a href="{{ url_for('knowledge') }}">Knowledge</a>
+    <a href="{{ url_for('schema_chat') }}">Schema Chat</a>
+    <a href="{{ url_for('ai_skills') }}">AI Skills</a>
+    <a href="{{ url_for('llm_setup') }}">LLM Setup</a>
+    <a href="{{ url_for('admin.dashboard') }}">Admin</a>
+  </nav>
+</header>
+<main class="schema-map-page">
+  <div class="schema-map-heading">
+    <div>
+      <p class="catalogue-eyebrow">DATA RELATIONSHIP VISUALISATION</p>
+      <h1>Schema Map</h1>
+      <p>Relationships are drawn from the current local QueryBridge metadata. No additional joins are inferred in this view.</p>
+    </div>
+    <div class="schema-map-actions">
+      <button id="map-copy" class="secondary small" type="button">Copy Mermaid</button>
+      <button id="map-export-svg" class="secondary small" type="button">Export SVG</button>
+      <button id="map-export-dot" class="secondary small" type="button">Export .dot</button>
+      <button id="map-export" class="secondary small" type="button">Export .mmd</button>
+    </div>
+  </div>
+  <section class="schema-map-toolbar panel" aria-label="Diagram filters">
+    <label>Diagram view
+      <select id="map-view">
+        <option value="overview">Overview · tables and links</option>
+        <option value="detail">Detail · tables with fields and joins</option>
+      </select>
+    </label>
+    <label>Application
+      <select id="map-application"><option value="">All applications</option></select>
+    </label>
+    <label>Focus
+      <select id="map-focus"><option value="">All tables in scope</option></select>
+    </label>
+    <label id="map-field-label" hidden>Highlight linked field
+      <select id="map-field"><option value="">No field highlighted</option></select>
+    </label>
+    <label class="schema-map-check"><input type="checkbox" id="map-unjoined"> Show all tables, including unjoined</label>
+    <label class="schema-map-check"><input type="checkbox" id="map-external"> Include linked tables from other applications</label>
+    <button id="map-reset" class="secondary small" type="button">Reset filters</button>
+  </section>
+  <section class="schema-map-stats" id="map-stats" aria-label="Diagram statistics"></section>
+  <div class="schema-map-layout">
+    <section class="schema-map-primary panel">
+      <div class="schema-map-canvas-head">
+        <div><strong id="map-title">Relationship overview</strong><span id="map-render-status" role="status" aria-live="polite"></span></div>
+        <div class="schema-map-zoom" aria-label="Diagram zoom">
+          <button id="map-zoom-out" class="secondary small" type="button" title="Zoom out">−</button>
+          <span id="map-zoom-level">100%</span>
+          <button id="map-zoom-in" class="secondary small" type="button" title="Zoom in">+</button>
+          <button id="map-zoom-reset" class="secondary small" type="button">Fit / Reset</button>
+        </div>
+      </div>
+      <div id="map-stage" class="schema-map-stage" tabindex="0" aria-label="Scroll to navigate diagram">
+        <div id="map-diagram" class="schema-map-diagram">
+          <img id="map-image" alt="Graphviz network showing current schema relationships" hidden>
+          <div id="map-empty">Loading graph…</div>
+        </div>
+      </div>
+      <p class="schema-map-legend">Lines = recorded joins · Grey tables = unjoined in the selected scope · Orange tables = linked tables in another application. In the detailed view, lines attach to the exact captured field rows. Cardinality is not assumed.</p>
+      <details class="schema-map-source">
+        <summary>View Mermaid source (compatible with Mermaid Final)</summary>
+        <pre id="map-source"></pre>
+      </details>
+    </section>
+    <aside class="schema-map-side panel">
+      <h2>Tables in view <span id="map-table-count"></span></h2>
+      <label class="schema-map-search">Find table
+        <input type="search" id="map-table-search" placeholder="Name, schema or application…">
+      </label>
+      <div id="map-table-list" class="schema-map-list" aria-label="Tables in the diagram"></div>
+      <hr>
+      <h2>Unjoined tables <span id="map-orphan-count"></span></h2>
+      <p class="schema-map-help">Tables without a recorded join <strong>within this application filter</strong>. Select one to focus on it. Toggle “Show all tables” to include them in the whole diagram.</p>
+      <div id="map-orphan-list" class="schema-map-list schema-map-orphans"></div>
+      <hr>
+      <h2>Recorded relationships <span id="map-join-count"></span></h2>
+      <div id="map-joins" class="schema-map-joins"></div>
+    </aside>
+  </div>
+</main>
+<script src="{{ url_for('static', filename='schema-diagram.js') }}"></script>
+<script src="{{ url_for('static', filename='schema-map.js') }}" defer></script>
+</body>
+</html>

@@ -4864,6 +4864,9 @@ def api_build_sql():
 from admin_console import create_admin_blueprint
 app.register_blueprint(create_admin_blueprint(db, now_iso))
 
+from schema_map import create_schema_map_blueprint
+app.register_blueprint(create_schema_map_blueprint(db))
+
 
 if __name__ == "__main__":
     init_db()

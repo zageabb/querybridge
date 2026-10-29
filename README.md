@@ -298,3 +298,52 @@ behind the trusted reverse proxy, with HTTPS at the browser.
 This removal applies to the separate Admin password only; it does not change
 QueryBridge's existing metadata capture or AI schema workflows or grant live
 Databricks access.
+
+
+## Schema Map: visualise table and field relationships
+
+Open **Schema Map** from the QueryBridge navigation. This is a *read-only* view of
+the current working metadata in the local SQLite database: neither Databricks nor
+saved schema snapshots are queried or modified.
+
+- **Overview:** every represented table is one node; recorded field-level joins
+  are counted between table pairs, so a pair with three joins has one labelled line.
+- **Detail:** Graphviz renders fields as rows in table-shaped nodes and attaches
+  each recorded relationship to its exact source and target field ports (as in
+  the ER workbench of system-knowledge-designer). Select a field to
+  highlight that field's relationships.
+- **Application:** filter by the user-assigned application label, including
+  **Unassigned**, or select all applications. Optionally include linked tables
+  from other applications; external tables are coloured separately. Joins
+  between external-only tables are not inferred or added to a filtered view.
+- **Unjoined:** the sidebar always lists tables lacking stored joins *within
+  the current filter*. **Show all tables, including unjoined** includes these in
+  the diagram; you may also focus on an unjoined table individually.
+- **Focus:** narrow to one table plus its directly joined tables, useful for
+  large schemas. Use **Fit / Reset**, zoom, and the scrollable canvas.
+- **Export:** download Graphviz SVG and DOT, or copy/export equivalent Mermaid
+  .mmd text for use in Mermaid Final. Mermaid is exported, not required to
+  render the Schema Map page.
+
+The view uses only **saved relationships** (manual, inferred, or AI-approved)
+and does not invent new joins, foreign-key direction or cardinality. Saved
+relationship provenance, confidence and notes appear in the sidebar.
+
+### Graphviz runtime dependency
+
+The server needs the Graphviz dot executable to render SVG:
+
+    sudo apt-get update
+    sudo apt-get install -y graphviz
+    dot -V
+
+Graphviz is already used by the ER visualisation in
+system-knowledge-designer; no connection to that app is required.
+If Graphviz is missing, Schema Map shows an explicit error and the Mermaid
+source/export remains available. The GitHub Python CI workflow checks SVG
+rendering with Graphviz installed. For very large maps, the SVG renderer
+limits diagrams to 250 tables; filter by application or select a focus table.
+
+The rendering and API routes respect QueryBridge's existing UDA reverse-proxy
+prefix, including /apps/querybridge/. Do not expose the underlying Flask
+service outside the existing trusted network/application boundary.

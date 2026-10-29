@@ -1091,3 +1091,48 @@ body.resizing-panes {
   .admin-form-grid { grid-template-columns: minmax(0,1fr); }
   .admin-page { width: calc(100% - 24px); }
 }
+
+
+/* Read-only Schema Map – Graphviz field ports and Mermaid export */
+.schema-map-page { width: min(1760px, calc(100% - 32px)); margin: 22px auto 68px; }
+.schema-map-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.schema-map-heading h1 { margin: 0 0 6px; }
+.schema-map-heading p:not(.catalogue-eyebrow) { margin: 0; color: #667085; max-width: 840px; }
+.schema-map-actions, .schema-map-zoom { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.schema-map-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 16px; padding: 16px; margin-bottom: 16px; }
+.schema-map-toolbar label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: #475467; }
+.schema-map-toolbar select { max-width: 285px; min-width: 180px; padding: 9px; }
+.schema-map-toolbar .schema-map-check { flex-direction: row; align-items: center; gap: 7px; padding-bottom: 9px; max-width: 250px; font-weight: 500; }
+.schema-map-toolbar .schema-map-check input { width: auto; }
+.schema-map-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.schema-map-stats > div { background: #fff; border: 1px solid #e4e7ec; border-radius: 8px; padding: 12px 15px; }
+.schema-map-stats strong { display: block; font-size: 23px; font-variant-numeric: tabular-nums; }
+.schema-map-stats span { display: block; color: #667085; font-size: 12px; }
+.schema-map-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(265px, 310px); gap: 16px; align-items: start; }
+.schema-map-primary, .schema-map-side { min-width: 0; padding: 15px; }
+.schema-map-canvas-head { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding-bottom: 12px; }
+.schema-map-canvas-head strong { display: block; }
+#map-render-status { display: block; margin-top: 3px; color: #667085; font-size: 12px; }
+#map-render-status.schema-map-error { color: #b42318; }
+.schema-map-stage { height: min(70vh, 740px); min-height: 370px; overflow: auto; background: #fafbfc; border: 1px solid #e4e7ec; border-radius: 8px; }
+.schema-map-diagram { min-width: 100%; min-height: 100%; padding: 12px; }
+.schema-map-diagram img { display: block; height: auto; max-width: none; }
+#map-empty { padding: 42px 20px; text-align: center; color: #667085; }
+.schema-map-legend { color: #667085; font-size: 12px; line-height: 1.5; margin: 12px 0 0; }
+.schema-map-source { margin-top: 12px; }
+.schema-map-source summary { cursor: pointer; color: #475467; font-size: 12px; }
+.schema-map-source pre { max-height: 300px; overflow: auto; border: 1px solid #eaecf0; padding: 12px; font-size: 12px; white-space: pre; }
+.schema-map-side h2 { font-size: 15px; margin: 0 0 9px; }
+.schema-map-side hr { border: 0; border-top: 1px solid #eaecf0; margin: 18px 0; }
+.schema-map-search { display: block; font-size: 12px; color: #667085; }
+.schema-map-search input { width: 100%; margin: 5px 0 10px; }
+.schema-map-list, .schema-map-joins { max-height: 300px; overflow: auto; display: grid; align-content: start; gap: 7px; }
+.schema-map-orphans { max-height: 185px; }
+.schema-map-list-item { padding: 9px 10px; font: inherit; border: 1px solid #e4e7ec; border-radius: 7px; background: #fff; color: #344054; text-align: left; overflow-wrap: anywhere; line-height: 1.4; cursor: pointer; }
+.schema-map-list-item:hover { background: #eff6ff; border-color: #93c5fd; }
+.schema-map-list-item small { display: block; font-size: 11px; color: #667085; margin-top: 3px; }
+.schema-map-list-item.is-orphan { border-style: dashed; }
+.schema-map-help { color: #667085; font-size: 12px; line-height: 1.5; }
+.schema-map-zoom #map-zoom-level { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 38px; text-align: center; }
+@media (max-width: 1080px) { .schema-map-layout { grid-template-columns: 1fr; } .schema-map-stats { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+@media (max-width: 640px) { .schema-map-page { width: calc(100% - 20px); } .schema-map-stats { grid-template-columns: repeat(2,minmax(0,1fr)); } .schema-map-toolbar select { min-width: 0; width: 100%; } }

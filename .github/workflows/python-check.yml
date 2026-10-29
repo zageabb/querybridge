@@ -19,6 +19,13 @@ jobs:
         run: python -m py_compile app.py
       - name: Admin JavaScript syntax
         run: node --check static/admin.js
+      - name: Graphviz runtime
+        run: command -v dot || (sudo apt-get update -qq && sudo apt-get install -y graphviz)
+      - name: Schema Map JavaScript checks
+        run: |
+          node --check static/schema-diagram.js
+          node --check static/schema-map.js
+          node tests/test_schema_diagram.cjs
       - name: Automated tests
         run: python -m pytest -q tests
       - name: Flask import and database smoke test

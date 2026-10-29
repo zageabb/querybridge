@@ -307,3 +307,48 @@ Completion criteria:
 - [x] Both CI workflows green.
 - [x] PR merged to main.
 - [ ] User verifies editing in deployed Admin.
+
+
+### DEV-005 — Visual Schema Map with Graphviz field links and Mermaid export
+
+Status: 🔨 IN PROGRESS
+Priority: High
+Owner/Agent: ChatGPT
+Branch: feature/schema-relationship-map
+Depends on: DEV-001 Schema Explorer and captured metadata/joins
+Integration status: feature branch; validation, PR and merge pending
+
+Requirement:
+Provide an overview of stored table relationships, a detailed field-level
+relationship diagram, the option to include unjoined tables, and application
+filtering. Compare and reuse ideas from Mermaid Final and the entity diagram
+capability of System Knowledge Designer.
+
+Architecture:
+- Graphviz HTML table rows/field ports from System Knowledge Designer's
+  established renderer are adapted for precise local schema visualisation.
+- Mermaid Final compatibility remains through .mmd export.
+- New read-only Schema Map Flask blueprint and JSON/SVG/DOT endpoints.
+- New canvas, table search/inspector, application, unassigned, unjoined,
+  cross-application and one-hop focus filters, field highlighting and zoom.
+- Distinct style for isolated and cross-application tables.
+- Client-side labels escaped for Mermaid export; server-side data escaped for
+  Graphviz. No AI-generated or hypothetical joins.
+
+Evidence:
+- Files: schema_map.py, schema_graphviz.py, templates/schema_map.html,
+  static/schema-map.js, static/schema-diagram.js, static/style.css,
+  app.py, navigation templates, tests/test_schema_map.py,
+  tests/test_schema_diagram.cjs, README.md, Python CI workflow.
+- Tests: new Graphviz API/UI/field ports/UDA tests and Node Mermaid generator tests.
+- CI: pending.
+- PR: pending.
+- Merged: no.
+- User acceptance: pending on deployed Ubuntu app.
+
+Completion criteria:
+- [x] Implementation and tests written.
+- [ ] Automated tests green.
+- [ ] CI workflows green.
+- [ ] PR merged into main.
+- [ ] User confirms diagram works with live metadata in UDA.
