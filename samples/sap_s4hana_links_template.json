@@ -1,0 +1,69 @@
+{
+  "format": "querybridge-sap-links",
+  "format_version": 1,
+  "application": "SAP S/4HANA",
+  "description": "Starter examples for reviewing SAP purchasing document links. Edit to match your captured SAP data. Composite client keys (such as MANDT) may also be required in real queries; these links do not assert SQL join completeness.",
+  "tables": [
+    {
+      "name": "EKKO",
+      "fields": [
+        {
+          "name": "EBELN",
+          "data_type": null
+        },
+        {
+          "name": "LIFNR",
+          "data_type": null
+        }
+      ]
+    },
+    {
+      "name": "EKPO",
+      "fields": [
+        {
+          "name": "EBELN",
+          "data_type": null
+        },
+        {
+          "name": "EBELP",
+          "data_type": null
+        }
+      ]
+    },
+    {
+      "name": "LFA1",
+      "fields": [
+        {
+          "name": "LIFNR",
+          "data_type": null
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "left": {
+        "table": "EKKO",
+        "field": "EBELN"
+      },
+      "right": {
+        "table": "EKPO",
+        "field": "EBELN"
+      },
+      "confidence": 0.95,
+      "reason": "Example: purchasing document header to purchasing item by EBELN. Check MANDT/client and completeness in your SAP extraction."
+    },
+    {
+      "left": {
+        "table": "EKKO",
+        "field": "LIFNR"
+      },
+      "right": {
+        "table": "LFA1",
+        "field": "LIFNR"
+      },
+      "confidence": 0.85,
+      "reason": "Example: header supplier number to general supplier master. Check client and S/4HANA Business Partner integration for your dataset."
+    }
+  ]
+}
