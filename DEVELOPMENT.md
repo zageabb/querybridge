@@ -125,3 +125,52 @@ Parallel execution does not weaken the completion standard: each DEV item still 
 ## Maintenance rule
 
 Update this file during the same development pass that changes implementation. When prose and repository evidence disagree, repository evidence wins.
+
+
+### DEV-001 — Searchable schema explorer with field joins
+
+Status: 🔨 IN PROGRESS
+Priority: High
+Owner/Agent: ChatGPT
+Branch: feature/searchable-schema-catalogue
+Depends on: existing captured SQLite schema and relationship provenance
+Can run in parallel with: non-overlapping development outside app.py, templates, styling and tests
+Integration status: feature branch, PR/CI pending
+
+Requirement:
+A user-facing table of application, catalog, schema, table and field metadata, searchable
+across identifiers and descriptions; selecting a field shows all recorded joins.
+
+Implementation:
+- New /catalogue page with server-side filtered, paginated metadata search
+  and responsive field inspector.
+- Bidirectional relationship lookup with SQL equality condition, target,
+  confidence, source and notes; unlinked fields are explicitly identified.
+- Optional explicit application name per table, without conflating it with
+  Databricks catalog/schema. Label is editable and survives schema snapshot round trip.
+- SQLite migration for legacy tables and backwards-compatible snapshot loading.
+- Navigation entry on every existing application page.
+
+Evidence:
+- Files: app.py; templates/catalogue.html; templates/* navigation;
+  static/style.css; tests/test_catalogue.py; README.md.
+- Tests: tests/test_catalogue.py covers search, app filter, injection-like text,
+  relationship direction/provenance, snapshot compatibility, legacy DB migration,
+  write validation and reverse-proxy path.
+- CI: pending on feature PR.
+- Commit/PR: feature branch (see GitHub history), PR pending.
+- Merged to intended branch: not yet.
+- User/business acceptance: pending user test in UDA.
+
+Completion criteria:
+- [x] Implementation exists on feature branch.
+- [x] Relevant files changed.
+- [x] Tests written.
+- [ ] Automated tests pass.
+- [ ] CI passes.
+- [ ] PR reviewed and merged.
+- [ ] User verifies schema search and joins in deployed UI.
+
+Notes:
+This feature uses local metadata only, and does not infer new relationships.
+The optional application label is intentionally separate from Databricks catalog and schema.
