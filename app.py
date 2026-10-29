@@ -2076,8 +2076,15 @@ def schema_context_text(conn, include_relationships=True, max_chars=60000):
     ).fetchall()
 
     lines = ["QUERYBRIDGE WORKING SCHEMA"]
+    # Full SAP DDIC exports can have very large field counts. Reserve part of
+    # the context budget for relationships/knowledge and avoid fetching every
+    # field before truncating the prompt.
+    table_budget = max(2000, int(max_chars * 0.60))
+    table_used = len(lines[0])
+    table_limit_reached = False
     for table in tables:
         lines.append("")
+        table_used += 1
         lines.append(f"TABLE {qualified_name(table)}")
         lines.append(f"APPLICATION {table['application_name'] or 'Unassigned'} (user-assigned label, not catalog/schema)")
         if table["description"]:
@@ -2098,6 +2105,16 @@ def schema_context_text(conn, include_relationships=True, max_chars=60000):
             if col["comment"]:
                 detail += f" -- {col['comment']}"
             lines.append(detail)
+            table_used += len(detail) + 1
+            if table_used >= table_budget:
+                table_limit_reached = True
+                break
+        if table_limit_reached:
+            lines.append(
+                "[Additional table/field descriptions omitted; query the "
+                "read-only schema_tables and schema_fields views for the full dictionary.]"
+            )
+            break
 
     if include_relationships:
         relationships = conn.execute(
