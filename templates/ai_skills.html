@@ -142,7 +142,7 @@
                     <strong>#{{ proposal.id }} · {{ proposal.title }}</strong>
                     <span class="muted">{{ proposal.model or 'model not recorded' }}</span>
                 </div>
-                <span class="proposal-status {{ proposal.status }}">{{ proposal.status }}</span>
+                <span class="proposal-status {% if proposal.status == 'proposed' and proposal.review_state == 'no_changes' %}no-changes{% else %}{{ proposal.status }}{% endif %}">{% if proposal.status == 'proposed' and proposal.review_state == 'no_changes' %}no changes{% else %}{{ proposal.status }}{% endif %}</span>
             </summary>
             <div class="proposal-body">
                 {% if proposal.summary %}<div class="proposal-summary">{{ proposal.summary }}</div>{% endif %}
@@ -158,19 +158,28 @@
                     {% endfor %}
                 </div>
                 {% else %}
-                <div class="empty-library">The AI returned no valid schema operations.</div>
+                {% if proposal.review_state == 'invalid' %}
+                <div class="empty-library">No usable schema operations were saved with this proposal.</div>
+                {% else %}
+                <div class="empty-library">No schema changes were proposed. This is an informational review; there is nothing to apply.</div>
+                {% endif %}
                 {% endif %}
 
                 {% if proposal.status == 'proposed' %}
-                    {% if not proposal.valid_now %}
-                    <div class="flash error">This proposal no longer validates against the current schema. Generate a fresh proposal.</div>
+                    {% if proposal.review_state == 'invalid' %}
+                    <div class="flash error">This proposal cannot be applied to the current schema.
+                      {% for message in proposal.validation_errors %}<div>{{ message }}</div>{% endfor %}
+                      Review the differences or generate a fresh proposal.
+                    </div>
+                    {% elif proposal.review_state == 'no_changes' %}
+                    <p class="hint">Review complete. No changes are pending; you can dismiss this result.</p>
                     {% endif %}
                     <div class="proposal-actions">
                         <form method="post" action="{{ url_for('apply_schema_proposal', proposal_id=proposal.id) }}" onsubmit="return confirm('Apply these changes to the local QueryBridge schema model? This does not alter Databricks.')">
-                            <button class="primary" type="submit" {% if not proposal.operations or not proposal.valid_now %}disabled{% endif %}>Apply proposal</button>
+                            <button class="primary" type="submit" {% if proposal.review_state != 'ready' %}disabled{% endif %}>Apply proposal</button>
                         </form>
                         <form method="post" action="{{ url_for('reject_schema_proposal', proposal_id=proposal.id) }}">
-                            <button class="danger" type="submit">Reject</button>
+                            <button class="danger" type="submit">{{ 'Dismiss' if proposal.review_state == 'no_changes' else 'Reject' }}</button>
                         </form>
                     </div>
                 {% endif %}

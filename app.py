@@ -1259,7 +1259,10 @@ Rules:
 - Never invent an existing table or field for operations that require an existing object.
 - Structural additions may introduce a new table/field only when the user's request or knowledge supports it.
 - Destructive operations must have a clear reason.
-- Prefer no change over a weak guess.
+- Prefer no change over a weak guess. If the request is informational, return an empty operations list and explain the finding.
+- application_name is an optional user-assigned label, separate from Databricks catalog and schema.
+- When the user specifies an application (for example SAP S/4HANA), first identify tables with that application_name from supplied metadata or local_schema_select. Do not assume a standard SAP table belongs to that application merely because its name looks familiar.
+- Use catalog and schema in operation identities to disambiguate tables. The application label is context, not a substitute for the table's catalog/schema.
 - Relationships must be useful equality joins.
 - Confidence is 0..1.
 - Do not emit SQL DDL; emit only the structured operations above.
@@ -1352,6 +1355,7 @@ def build_local_schema_analysis_db(conn):
             catalog TEXT,
             schema_name TEXT,
             table_name TEXT,
+            application_name TEXT,
             table_type TEXT,
             is_temporary INTEGER,
             captured_at TEXT
@@ -1363,6 +1367,7 @@ def build_local_schema_analysis_db(conn):
             catalog TEXT,
             schema_name TEXT,
             table_name TEXT,
+            application_name TEXT,
             ordinal_position INTEGER,
             column_name TEXT,
             data_type TEXT,
@@ -1375,10 +1380,12 @@ def build_local_schema_analysis_db(conn):
             left_catalog TEXT,
             left_schema TEXT,
             left_table TEXT,
+            left_application TEXT,
             left_column TEXT,
             right_catalog TEXT,
             right_schema TEXT,
             right_table TEXT,
+            right_application TEXT,
             right_column TEXT,
             confidence REAL,
             source TEXT,
@@ -1405,8 +1412,8 @@ def build_local_schema_analysis_db(conn):
     analysis.executemany(
         """
         INSERT INTO schema_tables
-        (table_id, catalog, schema_name, table_name, table_type, is_temporary, captured_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (table_id, catalog, schema_name, table_name, application_name, table_type, is_temporary, captured_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -1414,13 +1421,14 @@ def build_local_schema_analysis_db(conn):
                 row["catalog"],
                 row["schema_name"],
                 row["table_name"],
+                row["application_name"],
                 row["table_type"],
                 row["is_temporary"],
                 row["captured_at"],
             )
             for row in conn.execute(
                 """
-                SELECT id, catalog, schema_name, table_name, table_type, is_temporary, captured_at
+                SELECT id, catalog, schema_name, table_name, application_name, table_type, is_temporary, captured_at
                 FROM qb_tables
                 ORDER BY COALESCE(catalog,''), COALESCE(schema_name,''), table_name
                 """
@@ -1432,8 +1440,8 @@ def build_local_schema_analysis_db(conn):
         """
         INSERT INTO schema_fields
         (field_id, table_id, catalog, schema_name, table_name,
-         ordinal_position, column_name, data_type, nullable, comment)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         application_name, ordinal_position, column_name, data_type, nullable, comment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -1442,6 +1450,7 @@ def build_local_schema_analysis_db(conn):
                 row["catalog"],
                 row["schema_name"],
                 row["table_name"],
+                row["application_name"],
                 row["ordinal_position"],
                 row["column_name"],
                 row["data_type"],
@@ -1456,6 +1465,7 @@ def build_local_schema_analysis_db(conn):
                     t.catalog,
                     t.schema_name,
                     t.table_name,
+                    t.application_name,
                     c.ordinal_position,
                     c.column_name,
                     c.data_type,
@@ -1472,10 +1482,10 @@ def build_local_schema_analysis_db(conn):
     analysis.executemany(
         """
         INSERT INTO schema_relationships
-        (relationship_id, left_catalog, left_schema, left_table, left_column,
-         right_catalog, right_schema, right_table, right_column,
+        (relationship_id, left_catalog, left_schema, left_table, left_application, left_column,
+         right_catalog, right_schema, right_table, right_application, right_column,
          confidence, source, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -1483,10 +1493,12 @@ def build_local_schema_analysis_db(conn):
                 row["left_catalog"],
                 row["left_schema"],
                 row["left_table"],
+                row["left_application"],
                 row["left_column"],
                 row["right_catalog"],
                 row["right_schema"],
                 row["right_table"],
+                row["right_application"],
                 row["right_column"],
                 row["confidence"],
                 row["source"],
@@ -1499,10 +1511,12 @@ def build_local_schema_analysis_db(conn):
                     lt.catalog left_catalog,
                     lt.schema_name left_schema,
                     lt.table_name left_table,
+                    lt.application_name left_application,
                     lc.column_name left_column,
                     rt.catalog right_catalog,
                     rt.schema_name right_schema,
                     rt.table_name right_table,
+                    rt.application_name right_application,
                     rc.column_name right_column,
                     r.confidence,
                     r.source,
@@ -1617,18 +1631,18 @@ def local_schema_sql_reference():
     return """LOCAL SCHEMA SQL TABLES
 
 schema_tables(
-  table_id, catalog, schema_name, table_name, table_type, is_temporary, captured_at
+  table_id, catalog, schema_name, table_name, application_name, table_type, is_temporary, captured_at
 )
 
 schema_fields(
-  field_id, table_id, catalog, schema_name, table_name,
+  field_id, table_id, catalog, schema_name, table_name, application_name,
   ordinal_position, column_name, data_type, nullable, comment
 )
 
 schema_relationships(
   relationship_id,
-  left_catalog, left_schema, left_table, left_column,
-  right_catalog, right_schema, right_table, right_column,
+  left_catalog, left_schema, left_table, left_application, left_column,
+  right_catalog, right_schema, right_table, right_application, right_column,
   confidence, source, notes
 )
 
@@ -1636,7 +1650,7 @@ schema_knowledge(
   knowledge_id, title, category, content, created_at, updated_at
 )
 
-These are isolated local copies of QueryBridge metadata for analysis. They do not contain Databricks business rows."""
+Application names are optional QueryBridge labels, not Databricks catalog/schema identifiers. Empty or NULL application_name is unassigned. Filter or group by application_name when requests name a source application. These are isolated local copies of QueryBridge metadata for analysis. They do not contain Databricks business rows."""
 
 
 def parse_schema_chat_agent_response(raw):
@@ -1972,6 +1986,7 @@ def schema_context_text(conn, include_relationships=True, max_chars=60000):
     for table in tables:
         lines.append("")
         lines.append(f"TABLE {qualified_name(table)}")
+        lines.append(f"APPLICATION {table['application_name'] or 'Unassigned'} (user-assigned label, not catalog/schema)")
         columns = conn.execute(
             """
             SELECT column_name, data_type, nullable, comment
@@ -3081,15 +3096,36 @@ def ai_skills():
     for row in proposal_rows:
         try:
             operations = json.loads(row["operations_json"])
-        except Exception:
+            if not isinstance(operations, list):
+                raise ValueError("Stored operations must be a list.")
+            parse_error = None
+        except (ValueError, TypeError):
             operations = []
-        checked = validate_schema_operations(conn, operations) if row["status"] == "proposed" else []
+            parse_error = "Saved operations are malformed."
+        checked = (
+            validate_schema_operations(conn, operations)
+            if row["status"] == "proposed" and not parse_error else []
+        )
+        invalid = [item for item in checked if not item["valid"]]
+        if row["status"] != "proposed":
+            review_state = "reviewed"
+        elif parse_error or invalid:
+            review_state = "invalid"
+        elif not operations:
+            review_state = "no_changes"
+        else:
+            review_state = "ready"
         proposals.append(
             {
                 **dict(row),
                 "operations": operations,
                 "checked": checked,
-                "valid_now": all(item["valid"] for item in checked) if checked else row["status"] != "proposed",
+                "review_state": review_state,
+                "valid_now": review_state in ("ready", "no_changes"),
+                "validation_errors": [parse_error] if parse_error else [
+                    f"#{item['index']} {item['action']}: {item['error']}"
+                    for item in invalid
+                ],
             }
         )
     table_count = conn.execute("SELECT COUNT(*) n FROM qb_tables").fetchone()["n"]
@@ -3209,11 +3245,13 @@ def create_schema_proposal():
             selected_skills,
         )
         conn.commit()
-        flash(
+        message = (
             f"AI schema proposal #{proposal_id} created with {valid_count} valid operation(s)"
-            + (f"; {invalid_count} invalid AI operation(s) were discarded." if invalid_count else "."),
-            "success",
+            + (f"; {invalid_count} invalid AI operation(s) were discarded." if invalid_count else ".")
         )
+        if valid_count == 0 and invalid_count == 0:
+            message = f"AI review #{proposal_id} found no schema changes to apply."
+        flash(message, "success")
     except Exception as exc:
         conn.rollback()
         flash(f"AI schema proposal failed: {exc}", "error")
@@ -3236,6 +3274,8 @@ def apply_schema_proposal(proposal_id):
             raise ValueError(f"Schema proposal is already {proposal['status']}.")
 
         operations = json.loads(proposal["operations_json"])
+        if not isinstance(operations, list) or not operations:
+            raise ValueError("This proposal contains no schema changes to apply. Dismiss it instead.")
         applied = apply_schema_operations(conn, operations)
         conn.execute(
             """

@@ -352,3 +352,49 @@ Completion criteria:
 - [x] CI workflows green.
 - [x] PR merged into main.
 - [ ] User confirms diagram works with live metadata in UDA.
+
+
+### DEV-006 — Restore application awareness and no-change proposal handling
+
+Status: 🔨 IN PROGRESS
+Priority: High
+Owner/Agent: ChatGPT
+Branch: fix/ai-proposals-application-awareness
+Depends on: DEV-001 application label, AI Skills and local schema SQL analysis
+Integration status: feature branch, CI/PR pending
+
+Observed:
+AI Skills proposal #8 ("No schema changes required") displayed "This proposal
+no longer validates against the current schema" in the screenshot despite
+having no operations. AI schema context and isolated SQL analysis omitted the
+newly introduced application_name, so AI could not reliably scope review by
+source application.
+
+Implementation:
+- Carry application_name through LLM schema context and read-only
+  schema_tables/schema_fields metadata, plus left/right application labels
+  for schema_relationships.
+- Explain the distinction between application and catalog/schema in AI SQL
+  reference and planner instructions.
+- Classify proposed records into ready, no_changes, invalid; keep real stale
+  operations blocked, with per-operation validation reasons.
+- Show an informative no-change state and Dismiss action instead of a
+  misleading stale warning. Reject applying empty lists even by direct POST.
+- Preserve existing schema identities, snapshot format and approved operations.
+
+Evidence:
+- Files: app.py, templates/ai_skills.html, static/style.css,
+  tests/test_ai_application_proposals.py, README.md, DEVELOPMENT.md.
+- Automated tests: metadata SQL application filters, no-op review, invalid
+  proposal reasons, valid apply and LLM prompt application context.
+- CI: pending.
+- PR: pending.
+- Merged to main: no.
+- User acceptance: pending deployed UDA verification.
+
+Completion criteria:
+- [x] Implementation and regression tests added.
+- [ ] Automated tests pass.
+- [ ] CI green before merge.
+- [ ] PR merged into main.
+- [ ] User verifies proposal #8 warning removed and app-specific review accurate.
