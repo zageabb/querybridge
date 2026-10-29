@@ -1447,6 +1447,7 @@ def build_local_schema_analysis_db(conn):
             schema_name TEXT,
             table_name TEXT,
             application_name TEXT,
+            description TEXT,
             table_type TEXT,
             is_temporary INTEGER,
             captured_at TEXT
@@ -1503,8 +1504,8 @@ def build_local_schema_analysis_db(conn):
     analysis.executemany(
         """
         INSERT INTO schema_tables
-        (table_id, catalog, schema_name, table_name, application_name, table_type, is_temporary, captured_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (table_id, catalog, schema_name, table_name, application_name, description, table_type, is_temporary, captured_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -1513,13 +1514,14 @@ def build_local_schema_analysis_db(conn):
                 row["schema_name"],
                 row["table_name"],
                 row["application_name"],
+                row["description"],
                 row["table_type"],
                 row["is_temporary"],
                 row["captured_at"],
             )
             for row in conn.execute(
                 """
-                SELECT id, catalog, schema_name, table_name, application_name, table_type, is_temporary, captured_at
+                SELECT id, catalog, schema_name, table_name, application_name, description, table_type, is_temporary, captured_at
                 FROM qb_tables
                 ORDER BY COALESCE(catalog,''), COALESCE(schema_name,''), table_name
                 """
@@ -1722,7 +1724,7 @@ def local_schema_sql_reference():
     return """LOCAL SCHEMA SQL TABLES
 
 schema_tables(
-  table_id, catalog, schema_name, table_name, application_name, table_type, is_temporary, captured_at
+  table_id, catalog, schema_name, table_name, application_name, description, table_type, is_temporary, captured_at
 )
 
 schema_fields(
