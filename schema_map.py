@@ -96,6 +96,9 @@ def schema_map_data():
         scoped_links = [
             link for link in raw_links
             if link["left_table_id"] in scope_ids and link["right_table_id"] in scope_ids
+            and (not application
+                 or link["left_table_id"] in base_ids
+                 or link["right_table_id"] in base_ids)
         ]
         linked_ids = {
             value
