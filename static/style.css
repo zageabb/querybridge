@@ -1137,3 +1137,15 @@ body.resizing-panes {
 .schema-map-zoom #map-zoom-level { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 38px; text-align: center; }
 @media (max-width: 1080px) { .schema-map-layout { grid-template-columns: 1fr; } .schema-map-stats { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media (max-width: 640px) { .schema-map-page { width: calc(100% - 20px); } .schema-map-stats { grid-template-columns: repeat(2,minmax(0,1fr)); } .schema-map-toolbar select { min-width: 0; width: 100%; } }
+
+/* SAP S/4HANA local relationship import */
+.sap-import-panel { margin-top: 22px; padding: 20px; }
+.sap-import-panel > label { display: block; color: #475467; font-size: 13px; font-weight: 600; margin-top: 12px; }
+.sap-import-panel input[type="file"] { display: block; margin-top: 8px; max-width: 100%; }
+.sap-import-panel h3 { margin: 18px 0 10px; }
+.sap-import-panel h4 { margin: 14px 0 8px; }
+.sap-import-panel ul { max-height: 210px; overflow-y: auto; padding-left: 24px; color: #475467; font-size: 13px; }
+.sap-import-panel li { margin: 4px 0; overflow-wrap: anywhere; }
+.sap-import-panel #sap-import-status { min-height: 20px; margin: 12px 0; font-size: 13px; }
+.sap-import-panel #sap-import-status.schema-map-error { color: #b42318; }
+.sap-import-counts { padding: 10px 14px; font-weight: 700; background: #eff6ff; border: 1px solid #d0e3ff; border-radius: 8px; }
