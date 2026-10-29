@@ -3096,15 +3096,36 @@ def ai_skills():
     for row in proposal_rows:
         try:
             operations = json.loads(row["operations_json"])
-        except Exception:
+            if not isinstance(operations, list):
+                raise ValueError("Stored operations must be a list.")
+            parse_error = None
+        except (ValueError, TypeError):
             operations = []
-        checked = validate_schema_operations(conn, operations) if row["status"] == "proposed" else []
+            parse_error = "Saved operations are malformed."
+        checked = (
+            validate_schema_operations(conn, operations)
+            if row["status"] == "proposed" and not parse_error else []
+        )
+        invalid = [item for item in checked if not item["valid"]]
+        if row["status"] != "proposed":
+            review_state = "reviewed"
+        elif parse_error or invalid:
+            review_state = "invalid"
+        elif not operations:
+            review_state = "no_changes"
+        else:
+            review_state = "ready"
         proposals.append(
             {
                 **dict(row),
                 "operations": operations,
                 "checked": checked,
-                "valid_now": all(item["valid"] for item in checked) if checked else row["status"] != "proposed",
+                "review_state": review_state,
+                "valid_now": review_state in ("ready", "no_changes"),
+                "validation_errors": [parse_error] if parse_error else [
+                    f"#{item['index']} {item['action']}: {item['error']}"
+                    for item in invalid
+                ],
             }
         )
     table_count = conn.execute("SELECT COUNT(*) n FROM qb_tables").fetchone()["n"]
@@ -3224,11 +3245,13 @@ def create_schema_proposal():
             selected_skills,
         )
         conn.commit()
-        flash(
+        message = (
             f"AI schema proposal #{proposal_id} created with {valid_count} valid operation(s)"
-            + (f"; {invalid_count} invalid AI operation(s) were discarded." if invalid_count else "."),
-            "success",
+            + (f"; {invalid_count} invalid AI operation(s) were discarded." if invalid_count else ".")
         )
+        if valid_count == 0 and invalid_count == 0:
+            message = f"AI review #{proposal_id} found no schema changes to apply."
+        flash(message, "success")
     except Exception as exc:
         conn.rollback()
         flash(f"AI schema proposal failed: {exc}", "error")
@@ -3251,6 +3274,8 @@ def apply_schema_proposal(proposal_id):
             raise ValueError(f"Schema proposal is already {proposal['status']}.")
 
         operations = json.loads(proposal["operations_json"])
+        if not isinstance(operations, list) or not operations:
+            raise ValueError("This proposal contains no schema changes to apply. Dismiss it instead.")
         applied = apply_schema_operations(conn, operations)
         conn.execute(
             """
