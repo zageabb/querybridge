@@ -221,3 +221,47 @@ Completion criteria:
 Notes:
 Admin protects the *new* endpoints, not QueryBridge's other legacy metadata
 mutation workflows. Before major deletions, save a named schema snapshot.
+
+
+### DEV-003 — Remove separate Admin password
+
+Status: 🔨 IN PROGRESS
+Priority: High
+Owner/Agent: ChatGPT
+Branch: feature/admin-no-password
+Depends on: DEV-002 metadata administration
+Can run in parallel with: non-admin changes
+Integration status: working branch; PR/CI pending
+
+Requirement:
+Open the Admin screen immediately in this single-user QueryBridge installation
+without a separate password or administrator sign-in step.
+
+Implementation:
+- Remove admin login, logout, account-configuration gate and sign-in UI.
+- Preserve server-side input validation, audit logging and confirmations for deletes.
+- Preserve session-based anti-CSRF token on admin mutations; issue it automatically on
+  Admin page load without any login, and return 403 on missing/invalid tokens.
+- Generate a secure random Flask session signing key by default; optionally use the
+  configured shared QUERYBRIDGE_SESSION_SECRET for stable multi-worker sessions.
+- Keep UDA subpath compatibility and update user documentation.
+
+Security boundary:
+Anyone who can access the QueryBridge app can use Admin. Network/reverse-proxy
+access control must restrict the entire application. This does not add Databricks writes.
+
+Evidence:
+- Files: admin_console.py, templates/admin.html, app.py, tests/test_admin.py,
+  README.md, DEVELOPMENT.md.
+- Tests: password-free page/API access, CSRF rejection, UDA route, CRUD and audit.
+- CI: pending.
+- PR: pending.
+- Merged: no.
+- User acceptance: pending.
+
+Completion criteria:
+- [x] Implementation and revised tests exist.
+- [ ] Automated tests pass.
+- [ ] CI checks pass.
+- [ ] PR merged into main.
+- [ ] Deployed UI confirmed by user.
