@@ -131,6 +131,17 @@ def dashboard():
     return response
 
 
+@bp.get("/api/sap-ddic/query")
+def sap_ddic_query():
+    """Download a read-only export query for the SAP team's HANA console."""
+    return send_file(
+        Path(__file__).resolve().parent / "scripts" / "export_sap_ddic_hana.sql",
+        mimetype="text/plain",
+        as_attachment=True,
+        download_name="export_sap_ddic_hana.sql",
+    )
+
+
 @bp.get("/api/sap-links/template")
 def sap_links_template():
     return send_file(
