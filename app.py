@@ -160,6 +160,8 @@ def init_db():
             skill_key TEXT,
             model TEXT,
             operations_json TEXT NOT NULL,
+            request_kind TEXT NOT NULL DEFAULT 'change',
+            request_text TEXT,
             status TEXT NOT NULL DEFAULT 'proposed',
             created_at TEXT NOT NULL,
             reviewed_at TEXT
@@ -185,6 +187,14 @@ def init_db():
     table_columns = {row["name"] for row in conn.execute("PRAGMA table_info(qb_tables)").fetchall()}
     if "application_name" not in table_columns:
         conn.execute("ALTER TABLE qb_tables ADD COLUMN application_name TEXT")
+
+    proposal_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(qb_schema_proposals)").fetchall()
+    }
+    if "request_kind" not in proposal_columns:
+        conn.execute("ALTER TABLE qb_schema_proposals ADD COLUMN request_kind TEXT NOT NULL DEFAULT 'change'")
+    if "request_text" not in proposal_columns:
+        conn.execute("ALTER TABLE qb_schema_proposals ADD COLUMN request_text TEXT")
 
     relationship_columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(qb_relationships)").fetchall()
@@ -3086,7 +3096,8 @@ def ai_skills():
     skills = [dict(row) for row in ai_skill_rows(conn)]
     proposal_rows = conn.execute(
         """
-        SELECT id, title, summary, skill_key, model, operations_json, status, created_at, reviewed_at
+        SELECT id, title, summary, skill_key, model, operations_json,
+               request_kind, request_text, status, created_at, reviewed_at
         FROM qb_schema_proposals
         ORDER BY id DESC
         LIMIT 100
@@ -3111,6 +3122,8 @@ def ai_skills():
             review_state = "reviewed"
         elif parse_error or invalid:
             review_state = "invalid"
+        elif row["request_kind"] == "answer" and not operations:
+            review_state = "answer"
         elif not operations:
             review_state = "no_changes"
         else:
@@ -3121,7 +3134,7 @@ def ai_skills():
                 "operations": operations,
                 "checked": checked,
                 "review_state": review_state,
-                "valid_now": review_state in ("ready", "no_changes"),
+                "valid_now": review_state in ("ready", "no_changes", "answer"),
                 "validation_errors": [parse_error] if parse_error else [
                     f"#{item['index']} {item['action']}: {item['error']}"
                     for item in invalid
@@ -3239,10 +3252,14 @@ def create_schema_proposal():
     selected_skills = request.form.getlist("skills")
     conn = db()
     try:
+        intent = (request.form.get("intent") or "change").strip()
+        if intent not in ("answer", "change"):
+            raise ValueError("Choose Ask schema or Propose changes.")
         proposal_id, valid_count, invalid_count = create_ai_schema_proposal(
             conn,
             request_text or "Review the current schema and knowledge and propose useful improvements.",
             selected_skills,
+            intent=intent,
         )
         conn.commit()
         message = (
@@ -3250,7 +3267,13 @@ def create_schema_proposal():
             + (f"; {invalid_count} invalid AI operation(s) were discarded." if invalid_count else ".")
         )
         if valid_count == 0 and invalid_count == 0:
-            message = f"AI review #{proposal_id} found no schema changes to apply."
+            row = conn.execute(
+                "SELECT request_kind FROM qb_schema_proposals WHERE id=?", (proposal_id,)
+            ).fetchone()
+            if row and row["request_kind"] == "answer":
+                message = f"Schema answer #{proposal_id} saved."
+            else:
+                message = f"AI review #{proposal_id} found no schema changes to apply."
         flash(message, "success")
     except Exception as exc:
         conn.rollback()
