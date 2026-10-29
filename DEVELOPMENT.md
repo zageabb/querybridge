@@ -225,13 +225,13 @@ mutation workflows. Before major deletions, save a named schema snapshot.
 
 ### DEV-003 — Remove separate Admin password
 
-Status: 🔨 IN PROGRESS
+Status: ⏳ AWAITING ACCEPTANCE
 Priority: High
 Owner/Agent: ChatGPT
 Branch: feature/admin-no-password
 Depends on: DEV-002 metadata administration
 Can run in parallel with: non-admin changes
-Integration status: working branch; PR/CI pending
+Integration status: merged to main via PR #4, user deployment/acceptance pending
 
 Requirement:
 Open the Admin screen immediately in this single-user QueryBridge installation
@@ -254,14 +254,14 @@ Evidence:
 - Files: admin_console.py, templates/admin.html, app.py, tests/test_admin.py,
   README.md, DEVELOPMENT.md.
 - Tests: password-free page/API access, CSRF rejection, UDA route, CRUD and audit.
-- CI: pending.
-- PR: pending.
-- Merged: no.
+- CI: QueryBridge Python Check and UDA Compatibility both passed on PR #4.
+- PR: https://github.com/zageabb/querybridge/pull/4
+- Merged: yes, squash commit 070a8c5609ff8ab867f42da4052694a9ed20332a.
 - User acceptance: pending.
 
 Completion criteria:
 - [x] Implementation and revised tests exist.
-- [ ] Automated tests pass.
-- [ ] CI checks pass.
-- [ ] PR merged into main.
+- [x] Automated tests pass.
+- [x] CI checks pass.
+- [x] PR merged into main.
 - [ ] Deployed UI confirmed by user.
