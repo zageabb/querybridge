@@ -1,0 +1,192 @@
+"""Security, CRUD, integrity and reverse-proxy checks for metadata administration."""
+import pytest
+
+import app as qb
+
+
+@pytest.fixture()
+def client(monkeypatch, tmp_path):
+    monkeypatch.setattr(qb, "DB_PATH", tmp_path / "admin.db")
+    monkeypatch.setenv("QUERYBRIDGE_ADMIN_PASSWORD", "long-testing-password-2026")
+    monkeypatch.setenv("QUERYBRIDGE_SESSION_SECRET", "a-unique-test-signing-key-longer-than-32-chars")
+    qb.app.secret_key = "a-unique-test-signing-key-longer-than-32-chars"
+    qb.app.config.update(TESTING=True)
+    qb.init_db()
+    yield qb.app.test_client()
+
+
+def login(client):
+    assert client.post("/admin/login", data={"password": "wrong-password"}).status_code == 302
+    assert client.get("/admin/api/overview").status_code == 401
+    response = client.post("/admin/login", data={"password": "long-testing-password-2026"})
+    assert response.status_code == 302
+    with client.session_transaction() as sess:
+        return sess["querybridge_csrf"]
+
+
+def change(client, token, action, data):
+    return client.post(
+        "/admin/api/change",
+        json={"action": action, "data": data},
+        headers={"X-CSRF-Token": token},
+    )
+
+
+def test_admin_disabled_without_environment(client, monkeypatch):
+    monkeypatch.delenv("QUERYBRIDGE_ADMIN_PASSWORD")
+    assert b"access not configured" in client.get("/admin").data.lower()
+    assert client.get("/admin/api/overview").status_code == 401
+    assert client.post("/admin/login", data={"password": "anything"}).status_code == 302
+
+
+def test_login_csrf_and_uda_prefix(client):
+    assert client.get("/admin/api/overview").status_code == 401
+    assert client.post("/admin/api/change", json={"action": "create_table", "data": {}}).status_code == 401
+    token = login(client)
+    assert client.get("/admin/api/overview").status_code == 200
+    assert client.post("/admin/api/change", json={"action": "create_table", "data": {}}).status_code == 403
+    assert client.post(
+        "/admin/api/change", json={"action": "create_table", "data": {}},
+        headers={"X-CSRF-Token": "incorrect"},
+    ).status_code == 403
+    headers = {
+        "X-Forwarded-Prefix": "/apps/querybridge",
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": "example.org",
+    }
+    result = client.get("/admin", headers=headers)
+    assert result.status_code == 200
+    assert b'<base href="/apps/querybridge/">' in result.data
+    assert b"/apps/querybridge/static/admin.js" in result.data
+    assert change(client, token, "not-supported", {}).status_code == 400
+    assert client.post("/admin/logout", data={"csrf": token}).status_code == 302
+    assert client.get("/admin/api/overview").status_code == 401
+
+
+def test_full_metadata_admin_workflow(client):
+    token = login(client)
+
+    def create_table(name):
+        result = change(client, token, "create_table", {
+            "catalog": "main", "schema_name": "scm", "table_name": name,
+            "application_name": "TAIJU", "table_type": "VIEW",
+        })
+        assert result.status_code == 200, result.json
+        return result.json["table_id"]
+
+    first = create_table("projects")
+    second = create_table("orders")
+    assert change(client, token, "create_table", {
+        "catalog": "MAIN", "schema_name": "scm", "table_name": "PROJECTS",
+    }).status_code == 400
+    data = client.get("/admin/api/overview").json
+    assert data["stats"]["tables"] == 2
+    assert len(data["tables"]) == 2
+
+    def create_field(table_id, name):
+        response = change(client, token, "create_field", {
+            "table_id": table_id, "column_name": name, "data_type": "STRING",
+            "nullable": "0", "comment": "business key",
+        })
+        assert response.status_code == 200, response.json
+
+    create_field(first, "project_id")
+    create_field(second, "project_ref")
+    assert change(client, token, "create_field", {
+        "table_id": first, "column_name": "PROJECT_ID", "data_type": "INT",
+    }).status_code == 400
+    a = client.get(f"/admin/api/tables/{first}").json["fields"][0]
+    b = client.get(f"/admin/api/tables/{second}").json["fields"][0]
+    assert a["nullable"] == 0 and a["ordinal_position"] == 1
+
+    assert change(client, token, "update_field", {
+        "id": a["id"], "column_name": "project_id", "data_type": "BIGINT",
+        "nullable": "1", "comment": "updated", "ordinal_position": "2",
+    }).status_code == 200
+    assert client.get(f"/admin/api/tables/{first}").json["fields"][0]["data_type"] == "BIGINT"
+
+    assert change(client, token, "create_join", {
+        "left_column_id": a["id"], "right_column_id": b["id"], "notes": "business key",
+    }).status_code == 200
+    reverse = change(client, token, "create_join", {
+        "left_column_id": b["id"], "right_column_id": a["id"],
+    })
+    assert reverse.status_code == 400
+    details = client.get(f"/admin/api/tables/{second}").json
+    assert details["fields"][0]["join_count"] == 1
+    assert details["joins"][0]["source"] == "manual"
+    assert details["joins"][0]["confidence"] == 1.0
+    join_id = details["joins"][0]["id"]
+    assert change(client, token, "delete_join", {"id": join_id}).status_code == 400
+    assert change(client, token, "delete_join", {"id": join_id, "confirm": True}).status_code == 200
+    assert client.get(f"/admin/api/tables/{first}").json["joins"] == []
+
+    assert change(client, token, "create_join", {
+        "left_column_id": a["id"], "right_column_id": b["id"],
+    }).status_code == 200
+    assert change(client, token, "delete_field", {
+        "id": a["id"], "confirm_name": "project_id"
+    }).status_code == 400
+    assert change(client, token, "delete_field", {
+        "id": a["id"], "confirm_name": "project_id", "acknowledge_impact": True
+    }).status_code == 200
+    assert client.get(f"/admin/api/tables/{second}").json["joins"] == []
+    assert change(client, token, "update_table", {
+        "id": second, "catalog": "main", "schema_name": "scm",
+        "table_name": "purchase_orders", "application_name": "SAP S/4HANA",
+        "table_type": "TABLE",
+    }).status_code == 200
+    assert client.get(f"/admin/api/tables/{second}").json["table"]["application_name"] == "SAP S/4HANA"
+
+    assert change(client, token, "delete_table", {
+        "id": second, "confirm_name": "purchase_orders",
+    }).status_code == 400
+    assert change(client, token, "delete_table", {
+        "id": second, "confirm_name": "purchase_orders", "acknowledge_impact": True,
+    }).status_code == 200
+    assert client.get(f"/admin/api/tables/{second}").status_code == 404
+    final = client.get("/admin/api/overview").json
+    assert final["stats"]["tables"] == 1
+    assert final["stats"]["fields"] == 0
+    assert final["stats"]["joins"] == 0
+    assert len(final["audit"]) >= 8
+
+
+def test_admin_operations_do_not_modify_saved_schema_or_core_tables(client):
+    token = login(client)
+    conn = qb.db()
+    conn.execute(
+        """INSERT INTO qb_schema_snapshots(name, description, snapshot_json, created_at, updated_at)
+           VALUES ('protected-snapshot','','{"format":"querybridge-schema","format_version":1,"tables":[]}',?,?)""",
+        (qb.now_iso(), qb.now_iso())
+    )
+    conn.commit()
+    conn.close()
+    created = change(client, token, "create_table", {"table_name": "local_only"})
+    assert created.status_code == 200
+    conn = qb.db()
+    assert conn.execute("SELECT COUNT(*) FROM qb_schema_snapshots").fetchone()[0] == 1
+    assert conn.execute("SELECT name FROM qb_schema_snapshots").fetchone()[0] == "protected-snapshot"
+    assert conn.execute("SELECT COUNT(*) FROM qb_saved_queries").fetchone()[0] == 0
+    conn.close()
+
+
+def test_invalid_inputs_never_change_local_schema(client):
+    token = login(client)
+    for payload in [
+        {"table_name": ""},
+        {"table_name": "name" + chr(10) + "other"},
+        {"table_name": "x" * 201},
+        {"table_name": {"injected": "not text"}},
+    ]:
+        assert change(client, token, "create_table", payload).status_code == 400
+    result = change(client, token, "create_table", {"table_name": "valid"})
+    table_id = result.json["table_id"]
+    for payload in [
+        {"table_id": table_id, "column_name": ""},
+        {"table_id": table_id, "column_name": "field", "nullable": "sometimes"},
+        {"table_id": table_id, "column_name": "field", "ordinal_position": "-1"},
+        {"table_id": table_id, "column_name": "field", "data_type": "x" * 256},
+    ]:
+        assert change(client, token, "create_field", payload).status_code == 400
+    assert client.get(f"/admin/api/tables/{table_id}").json["fields"] == []

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <base href="{{ url_for('index') }}">
+    <script src="{{ url_for('static', filename='uda-path.js') }}"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QueryBridge – Administration</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+    <div><div class="brand">QueryBridge</div><div class="subtitle">Local metadata administration</div></div>
+    <nav>
+        <a href="{{ url_for('index') }}">Metadata</a>
+        <a href="{{ url_for('catalogue') }}">Schema Explorer</a>
+        <a href="{{ url_for('builder') }}">Query Builder</a>
+        <a href="{{ url_for('knowledge') }}">Knowledge</a>
+        <a href="{{ url_for('schema_chat') }}">Schema Chat</a>
+        <a href="{{ url_for('ai_skills') }}">AI Skills</a>
+        <a href="{{ url_for('llm_setup') }}">LLM Setup</a>
+        <a class="active" href="{{ url_for('admin.dashboard') }}">Admin</a>
+    </nav>
+</header>
+<main class="admin-page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+    {% endwith %}
+    <section class="admin-heading">
+        <div>
+            <p class="catalogue-eyebrow">LOCAL DATABASE · CONTROLLED EDITING</p>
+            <h1>Metadata Administration</h1>
+            <p>Review and maintain the application, table, field and relationship records held in QueryBridge's SQLite database.</p>
+        </div>
+        {% if authenticated %}
+        <form method="post" action="{{ url_for('admin.logout') }}">
+            <input type="hidden" name="csrf" value="{{ csrf_token }}">
+            <button type="submit" class="secondary">Sign out</button>
+        </form>
+        {% endif %}
+    </section>
+    <div class="admin-warning"><strong>Local metadata only.</strong> Nothing on this screen changes physical tables in Databricks. Removing a local field or table also removes its locally recorded joins; named schema snapshots remain unchanged. Save a snapshot from Metadata before major edits.</div>
+    {% if not ready %}
+    <section class="panel admin-login">
+        <h2>Administrator access not configured</h2>
+        <p>The administration console is disabled until the server administrator sets <code>QUERYBRIDGE_ADMIN_PASSWORD</code> (at least 12 characters) and <code>QUERYBRIDGE_SESSION_SECRET</code> (at least 32 characters) in the application environment, then restarts QueryBridge.</p>
+        <p>Use a private reverse proxy with HTTPS for remote access. No default administrator password is supplied.</p>
+    </section>
+    {% elif not authenticated %}
+    <section class="panel admin-login">
+        <h2>Administrator sign in</h2>
+        <p>Changes to local schema metadata require an administrator session.</p>
+        <form method="post" action="{{ url_for('admin.login') }}">
+            <label>Password
+                <input type="password" name="password" minlength="12" autocomplete="current-password" required>
+            </label>
+            <button type="submit" class="primary">Sign in</button>
+        </form>
+    </section>
+    {% else %}
+    <div id="admin-alert" class="admin-alert" role="status" aria-live="polite" hidden></div>
+    <section class="admin-stats" id="admin-stats" aria-label="Metadata totals"></section>
+    <div class="admin-grid">
+        <section class="panel admin-browser">
+            <div class="admin-section-header">
+                <div><h2>Tables</h2><p>Current working metadata</p></div>
+                <button id="admin-add-table" type="button" class="primary small">+ Add table</button>
+            </div>
+            <input id="admin-search" type="search" placeholder="Search application, catalog, schema or table…" aria-label="Search tables">
+            <div class="admin-table-scroll">
+                <table class="admin-tables">
+                    <thead><tr><th>Application / Table</th><th>Fields</th><th>Joins</th></tr></thead>
+                    <tbody id="admin-table-list"><tr><td colspan="3">Loading…</td></tr></tbody>
+                </table>
+            </div>
+            <p id="admin-table-count" class="muted"></p>
+            <h3>Recent administration changes</h3>
+            <ol id="admin-audit" class="admin-audit"></ol>
+        </section>
+        <section class="panel admin-editor">
+            <div class="admin-section-header"><div><h2 id="admin-current-title">Select a table</h2><p id="admin-current-path">Choose a record on the left to edit its details.</p></div></div>
+            <form id="admin-table-form" class="admin-form" hidden>
+                <h3>Table details</h3>
+                <div class="admin-form-grid">
+                    <label>Application <input name="application_name" maxlength="120" placeholder="e.g. SAP S/4HANA"></label>
+                    <label>Catalog <input name="catalog" maxlength="200"></label>
+                    <label>Schema <input name="schema_name" maxlength="200"></label>
+                    <label>Table name <input name="table_name" maxlength="200" required></label>
+                    <label>Table type <input name="table_type" maxlength="100" placeholder="TABLE, VIEW …"></label>
+                </div>
+                <div class="admin-actions">
+                    <button class="primary" type="submit" id="admin-save-table">Save table</button>
+                    <button class="danger" type="button" id="admin-delete-table" hidden>Delete table</button>
+                    <button class="secondary" type="button" id="admin-cancel-table">Cancel</button>
+                </div>
+            </form>
+            <div id="admin-table-children" hidden>
+                <hr>
+                <div class="admin-section-header">
+                    <div><h3>Fields <span id="admin-field-count"></span></h3><p>Edit names, data types, nullability, positions and descriptions.</p></div>
+                    <button type="button" class="secondary small" id="admin-add-field">+ Add field</button>
+                </div>
+                <div class="admin-table-scroll">
+                    <table class="admin-fields">
+                        <thead><tr><th>#</th><th>Field</th><th>Type</th><th>Joins</th><th></th></tr></thead>
+                        <tbody id="admin-field-list"></tbody>
+                    </table>
+                </div>
+                <form id="admin-field-form" class="admin-subform" hidden>
+                    <h4 id="admin-field-form-title">Add field</h4>
+                    <div class="admin-form-grid">
+                        <label>Field name <input name="column_name" maxlength="200" required></label>
+                        <label>Data type <input name="data_type" maxlength="255" placeholder="STRING, INT, TIMESTAMP …"></label>
+                        <label>Nullable
+                            <select name="nullable"><option value="">Unknown</option><option value="1">Yes</option><option value="0">No</option></select>
+                        </label>
+                        <label>Position <input name="ordinal_position" type="number" min="1" max="1000000"></label>
+                    </div>
+                    <label>Description <textarea name="comment" rows="2" maxlength="4000"></textarea></label>
+                    <div class="admin-actions">
+                        <button type="submit" class="primary small">Save field</button>
+                        <button type="button" class="danger small" id="admin-delete-field" hidden>Delete field</button>
+                        <button type="button" class="secondary small" id="admin-cancel-field">Cancel</button>
+                    </div>
+                </form>
+                <hr>
+                <div class="admin-section-header">
+                    <div><h3>Recorded joins <span id="admin-join-count"></span></h3><p>Relationships are shown from either side.</p></div>
+                </div>
+                <ul id="admin-joins" class="admin-join-list"></ul>
+                <form id="admin-join-form" class="admin-subform">
+                    <h4>Add manual relationship</h4>
+                    <div class="admin-form-grid">
+                        <label>Local field <select name="left_column_id" id="admin-join-left" required></select></label>
+                        <label>Linked table <select id="admin-join-target-table" required></select></label>
+                        <label>Linked field <select name="right_column_id" id="admin-join-target-field" required></select></label>
+                    </div>
+                    <label>Reason / notes <input name="notes" maxlength="2000" placeholder="Document the join key"></label>
+                    <button type="submit" class="secondary small">Add relationship</button>
+                </form>
+            </div>
+        </section>
+    </div>
+    <script>window.querybridgeAdminToken = {{ csrf_token | tojson }};</script>
+    <script src="{{ url_for('static', filename='admin.js') }}"></script>
+    {% endif %}
+</main>
+</body>
+</html>

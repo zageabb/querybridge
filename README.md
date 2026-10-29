@@ -256,3 +256,30 @@ Open **Schema Explorer** from the top navigation to browse the **current working
 - A table with no captured columns is still visible in the browser. Application assignments are stored locally only; they never write to Databricks.
 
 The browser displays the active working schema, **not all saved schema snapshots at once**. Load a saved snapshot from the Metadata page to explore it.
+
+
+## Metadata Administration
+
+**Admin** provides a controlled editor for the *local SQLite metadata records* used by QueryBridge. It does not connect to Databricks or change live source tables.
+
+The dashboard shows total tables, fields, stored joins, snapshots and knowledge entries, plus searchable application/catalog/schema/table records, selected table fields, recorded joins and the last 25 admin changes.
+
+An authenticated administrator can:
+- create, rename and remove a captured table; edit its application label, catalog, schema and table type;
+- add, rename, retype, reorder, change nullability, describe or delete captured fields;
+- add a documented manual equality relationship between fields on different tables, or remove an existing relationship.
+
+A deleted field or table cascades to its *locally stored* relationships. Deleting requires the exact name and a second confirmation. Previously saved schema snapshots are preserved (they are not silently updated); existing saved SQL and knowledge may require review after renaming/removing metadata. Admin activity is recorded in the SQLite admin audit table, including previous and new values for edited records (not a full reversible database backup). **Save a named schema snapshot before major edits.**
+
+### Enable the Admin console
+
+Set these environment variables **on the server before starting QueryBridge**, using secure secret management:
+
+    export QUERYBRIDGE_ADMIN_PASSWORD='use-a-unique-long-password'
+    export QUERYBRIDGE_SESSION_SECRET="$(openssl rand -hex 32)"
+    # For HTTPS-only access through a trusted reverse proxy:
+    export QUERYBRIDGE_COOKIE_SECURE=1
+
+Both the admin password (at least 12 characters) and the signing secret (at least 32 characters) are required. **Without them the Admin console is disabled and its editing endpoints reject requests.** Sign in using the Admin tab; the administrator session expires after four hours. Use HTTPS, prevent direct access to the Flask backend from untrusted clients, and do not commit secrets to GitHub. For localhost over HTTP, leave the cookie secure flag unset; it must be 1 for an HTTPS-only deployment.
+
+This secures the **new Admin endpoints**. QueryBridge's pre-existing metadata capture and AI schema-change workflows retain their existing access controls; a broader application-wide role/permissions system is a separate security improvement.
