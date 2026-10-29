@@ -174,3 +174,50 @@ Completion criteria:
 Notes:
 This feature uses local metadata only, and does not infer new relationships.
 The optional application label is intentionally separate from Databricks catalog and schema.
+
+
+### DEV-002 — Authenticated local metadata administration
+
+Status: 🔨 IN PROGRESS
+Priority: High
+Owner/Agent: ChatGPT
+Branch: feature/metadata-admin-console
+Depends on: DEV-001 Schema Explorer and current SQLite schema
+Can run in parallel with: changes outside schema metadata/navigation
+Integration status: feature branch; validation, PR and merge pending
+
+Requirement:
+Provide an administrative data overview and controlled create, update, delete capabilities
+for locally stored application/table/field/relationship metadata.
+
+Implementation:
+- Admin dashboard with table search, field editor, relationship controls and recent-change log.
+- Fail-closed password + signing-secret configuration, session login, four-hour session
+  expiry, CSRF protection for admin writes, and logout.
+- Validation against missing/duplicate names and invalid types/nullability/ordering.
+- Deletion prompts with cascade counts and explicit acknowledgement.
+- Persistent qb_admin_audit records for changes.
+- Reverse-proxy-safe script/API links.
+- Existing Databricks source data remains untouched.
+
+Evidence:
+- Files: admin_console.py, app.py, templates/admin.html, static/admin.js,
+  static/style.css, tests/test_admin.py, navigation templates, README.md.
+- Tests: tests/test_admin.py for login, disabled mode, CSRF, UDA subpath,
+  CRUD, join direction, deletion impacts, audit and input validation.
+- CI: pending.
+- PR: pending.
+- Merged to main: no.
+- User acceptance: pending.
+
+Completion criteria:
+- [x] Backend and frontend implemented on feature branch.
+- [x] Tests written.
+- [ ] Automated tests pass.
+- [ ] CI checks pass.
+- [ ] PR merged into main.
+- [ ] Admin verifies UI and database data on deployed installation.
+
+Notes:
+Admin protects the *new* endpoints, not QueryBridge's other legacy metadata
+mutation workflows. Before major deletions, save a named schema snapshot.
