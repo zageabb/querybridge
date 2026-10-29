@@ -202,7 +202,7 @@ def test_list_tables_returns_real_captured_names_without_llm(client, monkeypatch
     )
     assert response.status_code == 200
     text = response.get_data(as_text=True)
-    assert "sap_ekko" in text and "testcat.purchase.EKKO" in text
+    assert "sap_ekko" in text and "testcat.purchase.sap_ekko" in text
     assert "Schema answer" in text or "Table inventory" in text
     assert "No schema changes were proposed. This is an informational review" not in text
     conn = qb.db()
@@ -211,7 +211,7 @@ def test_list_tables_returns_real_captured_names_without_llm(client, monkeypatch
     ).fetchone()
     assert record["request_kind"] == "answer"
     assert record["operations_json"] == "[]"
-    assert "testcat.purchase.EKKO" in record["summary"]
+    assert "testcat.purchase.sap_ekko" in record["summary"]
     conn.close()
 
 
@@ -224,7 +224,7 @@ def test_asking_application_filtered_inventory_and_no_apply_button(client):
         follow_redirects=True,
     )
     text = response.get_data(as_text=True)
-    assert "sap_ekko" in text and "EKPO" in text
+    assert "sap_ekko" in text and "sap_ekpo" in text
     assert 'proposal-status answer' in text
     assert "Read-only answer from the current local schema" in text
     # No Apply button inside an informational record.
