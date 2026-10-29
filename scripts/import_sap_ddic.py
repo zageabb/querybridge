@@ -78,12 +78,8 @@ def rows_grouped(path, include_custom=False):
         yield rows
 
 
-def table_matches(conn, name):
-    matches = conn.execute(
-        """SELECT id, application_name, description, catalog, schema_name, table_name
-           FROM qb_tables WHERE lower(table_name)=lower(?) ORDER BY id""",
-        (name,),
-    ).fetchall()
+def table_matches(table_cache, name):
+    matches = table_cache.get(name.casefold(), [])
     if len(matches) <= 1:
         return matches[0] if matches else None
     preferred = [
@@ -97,7 +93,6 @@ def table_matches(conn, name):
         "bulk import will not guess a catalog/schema."
     )
 
-
 def name_for_ddic(table, prefix):
     if table.startswith("/"):
         # Keep SAP namespaces as part of the identifier.
@@ -110,11 +105,17 @@ def run_import(conn, path, prefix="sap_", apply=False, include_custom=False):
     if "description" not in cols:
         raise ValueError("Run updated QueryBridge once first: qb_tables.description migration missing.")
     counts = defaultdict(int)
+    # O(1) lookup per table even for a full SAP Dictionary export.
+    table_cache = defaultdict(list)
+    for record in conn.execute(
+        "SELECT id, application_name, description, table_name FROM qb_tables"
+    ):
+        table_cache[record["table_name"].casefold()].append(record)
     timestamp = dt.datetime.now(dt.timezone.utc).isoformat()
     for entries in rows_grouped(path, include_custom):
         sap_name = entries[0]["TABLE_NAME"]
         table_name = name_for_ddic(sap_name, prefix)
-        item = table_matches(conn, table_name)
+        item = table_matches(table_cache, table_name)
         table_desc = next((text(r.get("TABLE_DESCRIPTION"), 1000)
                            for r in entries if text(r.get("TABLE_DESCRIPTION"))), None)
         if item is None:
@@ -128,6 +129,10 @@ def run_import(conn, path, prefix="sap_", apply=False, include_custom=False):
                     (table_name, APPLICATION, table_desc, timestamp),
                 )
                 table_id = cursor.lastrowid
+                table_cache[table_name.casefold()].append({
+                    "id": table_id, "table_name": table_name,
+                    "application_name": APPLICATION, "description": table_desc,
+                })
             else:
                 table_id = None
         else:
