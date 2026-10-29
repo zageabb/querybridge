@@ -160,6 +160,7 @@ def schema_map_data():
         return jsonify({
             "ok": True,
             "applications": applications,
+            "has_unassigned": any(not t["application_name"] for t in all_tables),
             "tables": visible_tables,
             "relationships": visible_links,
             "unjoined_tables": [
