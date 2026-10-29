@@ -10,9 +10,10 @@ import json
 import re
 import secrets
 
-from flask import Blueprint, jsonify, render_template, request, session
+from flask import Blueprint, jsonify, make_response, render_template, request
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+ADMIN_CSRF_COOKIE = "qb_admin_csrf"
 _db = None
 _now = None
 
@@ -90,25 +91,42 @@ def log_change(conn, action, entity, identifier, before=None, after=None):
 
 @bp.before_request
 def guard():
-    # Admin is open to everyone who can already reach QueryBridge.
-    # Keep CSRF validation for mutations so unrelated websites cannot
-    # submit database changes via the user's browser.
+    # A double-submit cookie ties the CSRF header to the same browser without
+    # requiring Flask sessions or a shared secret between server workers.
     if request.method not in ("GET", "HEAD", "OPTIONS"):
-        supplied = request.headers.get("X-CSRF-Token") or request.form.get("csrf", "")
-        expected = session.get("querybridge_csrf", "")
-        if not supplied or not expected or not hmac.compare_digest(supplied, expected):
+        supplied = request.headers.get("X-CSRF-Token", "")
+        cookie_token = request.cookies.get(ADMIN_CSRF_COOKIE, "")
+        if not supplied or not cookie_token or not hmac.compare_digest(supplied, cookie_token):
             return error("Invalid administration security token. Reload Admin and retry.", 403)
+        # A cross-site page cannot read our CSRF token or send the custom
+        # header without CORS, and explicit cross-origin headers are rejected.
+        site = request.headers.get("Sec-Fetch-Site")
+        if site and site != "same-origin":
+            return error("Cross-origin administration changes are not allowed.", 403)
+        origin = request.headers.get("Origin")
+        if origin and origin.rstrip("/").lower() != request.host_url.rstrip("/").lower():
+            return error("Cross-origin administration changes are not allowed.", 403)
     return None
 
 
 @bp.get("")
 @bp.get("/")
 def dashboard():
-    token = session.get("querybridge_csrf")
-    if not token:
+    # Reuse the cookie so multiple Admin tabs remain usable. Set the cookie
+    # under the forwarded UDA prefix, matching the proxied API request path.
+    token = request.cookies.get(ADMIN_CSRF_COOKIE)
+    if not token or not re.fullmatch(r"[A-Za-z0-9_-]{40,64}", token):
         token = secrets.token_urlsafe(32)
-        session["querybridge_csrf"] = token
-    return render_template("admin.html", csrf_token=token)
+    response = make_response(render_template("admin.html", csrf_token=token))
+    response.set_cookie(
+        ADMIN_CSRF_COOKIE,
+        token,
+        path=f"{request.script_root.rstrip('/')}/",
+        secure=request.is_secure,
+        httponly=True,
+        samesite="Lax",
+    )
+    return response
 
 
 @bp.get("/api/overview")
