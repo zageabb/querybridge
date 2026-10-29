@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <base href="{{ url_for('index') }}">
+    <script src="{{ url_for('static', filename='uda-path.js') }}"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QueryBridge - Schema Explorer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+    <div>
+        <div class="brand">QueryBridge</div>
+        <div class="subtitle">Explore your captured metadata and joins</div>
+    </div>
+    <nav>
+        <a href="{{ url_for('index') }}">Metadata</a>
+        <a class="active" href="{{ url_for('catalogue') }}">Schema Explorer</a>
+        <a href="{{ url_for('builder') }}">Query Builder</a>
+        <a href="{{ url_for('knowledge') }}">Knowledge</a>
+        <a href="{{ url_for('schema_chat') }}">Schema Chat</a>
+        <a href="{{ url_for('ai_skills') }}">AI Skills</a>
+        <a href="{{ url_for('llm_setup') }}">LLM Setup</a>
+    </nav>
+</header>
+
+<main class="catalogue-page">
+    <section class="catalogue-heading">
+        <div>
+            <p class="catalogue-eyebrow">SCHEMA DICTIONARY</p>
+            <h1>Schema Explorer</h1>
+            <p>Search across all locally captured applications, catalogs, schemas, tables and fields. Select a field to inspect its known joins.</p>
+        </div>
+        <div class="stats" aria-label="Current schema totals">
+            <div><strong>{{ stats.tables }}</strong><span>tables</span></div>
+            <div><strong>{{ stats.fields }}</strong><span>fields</span></div>
+            <div><strong>{{ stats.joins }}</strong><span>joins</span></div>
+        </div>
+    </section>
+
+    <div class="catalogue-layout">
+        <section class="catalogue-main panel" aria-label="Search and browse schema">
+            <div class="catalogue-filterbar">
+                <label for="catalogue-search">Search everything
+                    <input id="catalogue-search" type="search" placeholder="Application, table, field, type or description…" autocomplete="off">
+                </label>
+                <label for="catalogue-application">Application
+                    <select id="catalogue-application">
+                        <option value="">All applications</option>
+                        {% for name in applications %}
+                        <option value="{{ name }}">{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <button id="catalogue-clear" type="button" class="secondary">Clear</button>
+            </div>
+            <p class="catalogue-guidance">Application is an optional label assigned in QueryBridge; Catalog and Schema are the original Databricks identifiers. Unassigned applications are shown as such.</p>
+            <div class="catalogue-table-wrap">
+                <table class="catalogue-table" aria-label="Captured tables and fields">
+                    <thead>
+                        <tr>
+                            <th>Application</th><th>Catalog</th><th>Schema</th>
+                            <th>Table</th><th>Field</th><th>Type</th><th>Joins</th>
+                        </tr>
+                    </thead>
+                    <tbody id="catalogue-rows">
+                        <tr><td colspan="7" class="catalogue-empty">Loading captured metadata…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="catalogue-pager">
+                <span id="catalogue-results" role="status" aria-live="polite"></span>
+                <div class="catalogue-pager-actions">
+                    <button id="catalogue-previous" type="button" class="secondary small" disabled>Previous</button>
+                    <span id="catalogue-page-number"></span>
+                    <button id="catalogue-next" type="button" class="secondary small" disabled>Next</button>
+                </div>
+            </div>
+        </section>
+
+        <aside class="catalogue-inspector panel" aria-label="Selected field and its joins">
+            <p class="catalogue-eyebrow">FIELD INSPECTOR</p>
+            <div id="catalogue-detail">
+                <h2>Select a field</h2>
+                <p class="muted">Choose any field in the table to see its description, application assignment and saved join relationships.</p>
+            </div>
+        </aside>
+    </div>
+</main>
+
+<script>
+(() => {
+    const search = document.getElementById("catalogue-search");
+    const application = document.getElementById("catalogue-application");
+    const tbody = document.getElementById("catalogue-rows");
+    const resultLabel = document.getElementById("catalogue-results");
+    const pageLabel = document.getElementById("catalogue-page-number");
+    const previous = document.getElementById("catalogue-previous");
+    const next = document.getElementById("catalogue-next");
+    const detail = document.getElementById("catalogue-detail");
+    let page = 1;
+    let currentField = Number(new URLSearchParams(location.search).get("field")) || null;
+    let listingRequest = 0;
+    let detailRequest = 0;
+    let debounce;
+
+    function element(tag, className, textValue) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (textValue !== undefined && textValue !== null) node.textContent = String(textValue);
+        return node;
+    }
+    function showMessage(target, message) {
+        target.replaceChildren(element("p", "muted", message));
+    }
+    function display(value, fallback = "—") {
+        return value === null || value === undefined || value === "" ? fallback : value;
+    }
+    function code(value) {
+        return element("code", "", display(value));
+    }
+    function setSelectedRow() {
+        tbody.querySelectorAll("tr[data-field-id]").forEach(row => {
+            const active = Number(row.dataset.fieldId) === currentField;
+            row.classList.toggle("is-selected", active);
+            const button = row.querySelector(".catalogue-field-button");
+            if (button) button.setAttribute("aria-pressed", String(active));
+        });
+    }
+
+    async function loadRows() {
+        const sequence = ++listingRequest;
+        tbody.replaceChildren();
+        const loading = element("tr");
+        const cell = element("td", "catalogue-empty", "Loading…");
+        cell.colSpan = 7; loading.append(cell); tbody.append(loading);
+        const params = new URLSearchParams({page: String(page)});
+        if (search.value.trim()) params.set("q", search.value.trim());
+        if (application.value) params.set("application", application.value);
+        try {
+            const response = await fetch("/api/catalogue/fields?" + params.toString());
+            if (!response.ok) throw new Error("Could not fetch catalogue.");
+            const data = await response.json();
+            if (sequence !== listingRequest) return;
+            tbody.replaceChildren();
+            if (!data.rows.length) {
+                const row = element("tr");
+                const empty = element("td", "catalogue-empty", data.total ? "No results on this page." : "No matching tables or fields found.");
+                empty.colSpan = 7; row.append(empty); tbody.append(row);
+            }
+            data.rows.forEach(item => {
+                const row = element("tr");
+                if (item.field_id !== null) row.dataset.fieldId = item.field_id;
+                for (const value of [
+                    display(item.application_name, "Unassigned"), display(item.catalog),
+                    display(item.schema_name), item.table_name
+                ]) row.append(element("td", "", value));
+                const fieldCell = element("td");
+                if (item.field_id !== null) {
+                    const button = element("button", "catalogue-field-button", item.column_name);
+                    button.type = "button";
+                    button.title = "Show joins for " + item.column_name;
+                    button.setAttribute("aria-pressed", String(item.field_id === currentField));
+                    button.addEventListener("click", () => selectField(item.field_id));
+                    fieldCell.append(button);
+                    if (item.comment) fieldCell.append(element("small", "catalogue-comment", item.comment));
+                } else {
+                    fieldCell.append(element("span", "muted", "No fields captured"));
+                }
+                row.append(fieldCell);
+                row.append(element("td", "catalogue-type", display(item.data_type)));
+                row.append(element("td", "catalogue-join-count", item.join_count ? String(item.join_count) : "—"));
+                tbody.append(row);
+            });
+            resultLabel.textContent = data.total ? "Showing " + ((page - 1) * data.page_size + 1) + "–" + Math.min(data.total, page * data.page_size) + " of " + data.total + " rows" : "0 results";
+            pageLabel.textContent = "Page " + page;
+            previous.disabled = page <= 1;
+            next.disabled = page * data.page_size >= data.total;
+            setSelectedRow();
+        } catch (error) {
+            if (sequence !== listingRequest) return;
+            tbody.replaceChildren();
+            const row = element("tr"), cell = element("td", "catalogue-empty", error.message);
+            cell.colSpan = 7; row.append(cell); tbody.append(row);
+            resultLabel.textContent = "Unable to load catalogue";
+        }
+    }
+    function refreshSearch() {
+        page = 1;
+        loadRows();
+    }
+    search.addEventListener("input", () => {
+        clearTimeout(debounce);
+        debounce = setTimeout(refreshSearch, 250);
+    });
+    application.addEventListener("change", refreshSearch);
+    document.getElementById("catalogue-clear").addEventListener("click", () => {
+        search.value = ""; application.value = ""; refreshSearch(); search.focus();
+    });
+    previous.addEventListener("click", () => { if (page > 1) { page--; loadRows(); } });
+    next.addEventListener("click", () => { page++; loadRows(); });
+
+    function makeJoinCard(link) {
+        const card = element("li", "catalogue-link");
+        const heading = element("div", "catalogue-link-heading");
+        heading.append(element("strong", "", [link.target_application || "Unassigned", link.target_table, link.target_column].join(" · ")));
+        const badge = element("span", "catalogue-source", display(link.source, "unknown"));
+        heading.append(badge); card.append(heading);
+        const namespace = [link.target_catalog, link.target_schema, link.target_table, link.target_column].filter(Boolean).join(".");
+        card.append(element("p", "catalogue-target", namespace));
+        const sql = element("pre", "catalogue-join-sql", link.condition);
+        card.append(sql);
+        const confidence = link.confidence === null ? "Unknown" : (Number(link.confidence) * 100).toFixed(0) + "%";
+        card.append(element("p", "catalogue-meta", "Confidence: " + confidence));
+        if (link.notes) card.append(element("p", "catalogue-notes", link.notes));
+        const go = element("button", "secondary small", "Inspect linked field");
+        go.type = "button";
+        go.addEventListener("click", () => selectField(link.target_field_id));
+        card.append(go);
+        return card;
+    }
+    async function selectField(id) {
+        currentField = id;
+        const sequence = ++detailRequest;
+        setSelectedRow();
+        const url = new URL(location.href);
+        url.searchParams.set("field", String(id));
+        history.replaceState(null, "", url.toString());
+        showMessage(detail, "Loading joins…");
+        try {
+            const response = await fetch("/api/catalogue/fields/" + encodeURIComponent(id) + "/joins");
+            if (!response.ok) throw new Error("Field information could not be loaded.");
+            const data = await response.json();
+            if (sequence !== detailRequest) return;
+            detail.replaceChildren();
+            detail.append(element("h2", "catalogue-detail-field", data.field.column_name));
+            detail.append(element("p", "catalogue-detail-path",
+                [data.field.catalog, data.field.schema_name, data.field.table_name].filter(Boolean).join(".")));
+            const properties = element("dl", "catalogue-properties");
+            [
+                ["Type", display(data.field.data_type)],
+                ["Application", display(data.field.application_name, "Unassigned")],
+                ["Description", display(data.field.comment, "No description captured")]
+            ].forEach(([label, value]) => {
+                properties.append(element("dt", "", label), element("dd", "", value));
+            });
+            detail.append(properties);
+            const form = element("form", "catalogue-app-editor");
+            const label = element("label", "", "Application label for this table");
+            const input = element("input");
+            input.type = "text"; input.maxLength = 120;
+            input.placeholder = "e.g. SAP S/4HANA, P6 or TAIJU";
+            input.value = data.field.application_name || "";
+            label.append(input); form.append(label);
+            const actions = element("div", "catalogue-form-actions");
+            const save = element("button", "secondary small", "Save application");
+            save.type = "submit";
+            const status = element("span", "muted");
+            status.setAttribute("role", "status");
+            actions.append(save, status); form.append(actions);
+            form.addEventListener("submit", async event => {
+                event.preventDefault();
+                save.disabled = true;
+                status.textContent = "Saving…";
+                try {
+                    const response = await fetch("/api/catalogue/tables/" + data.field.table_id + "/application", {
+                        method: "POST", headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({application_name: input.value})
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.ok) throw new Error(result.error || "Could not save");
+                    // Refresh options and rows from the database, preserving the current field selection.
+                    location.reload();
+                } catch (error) {
+                    status.textContent = error.message;
+                    save.disabled = false;
+                }
+            });
+            detail.append(form);
+            detail.append(element("h3", "catalogue-join-title", "Stored joins (" + data.joins.length + ")"));
+            if (!data.joins.length) {
+                detail.append(element("p", "muted", "No stored relationship uses this field. QueryBridge will not invent a join."));
+            } else {
+                const list = element("ul", "catalogue-link-list");
+                data.joins.forEach(link => list.append(makeJoinCard(link)));
+                detail.append(list);
+            }
+        } catch (error) {
+            if (sequence === detailRequest) showMessage(detail, error.message);
+        }
+    }
+    loadRows();
+    if (currentField) selectField(currentField);
+})();
+</script>
+</body>
+</html>
