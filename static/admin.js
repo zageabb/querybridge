@@ -140,7 +140,7 @@
     el("admin-current-title").textContent = t.table_name;
     el("admin-current-path").textContent = tableLabel(t);
     tableForm.hidden = false;
-    fillForm(tableForm, t, ["application_name", "catalog", "schema_name", "table_name", "table_type"]);
+    fillForm(tableForm, t, ["application_name", "catalog", "schema_name", "table_name", "table_type", "description"]);
     el("admin-delete-table").hidden = false;
     el("admin-save-table").textContent = "Save table changes";
     el("admin-table-children").hidden = false;
