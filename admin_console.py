@@ -9,8 +9,9 @@ import hmac
 import json
 import re
 import secrets
+from pathlib import Path
 
-from flask import Blueprint, jsonify, make_response, render_template, request
+from flask import Blueprint, jsonify, make_response, render_template, request, send_file
 from sap_links_import import plan_import, apply_import
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -128,6 +129,16 @@ def dashboard():
         samesite="Lax",
     )
     return response
+
+
+@bp.get("/api/sap-links/template")
+def sap_links_template():
+    return send_file(
+        Path(__file__).resolve().parent / "samples" / "sap_s4hana_links_template.json",
+        mimetype="application/json",
+        as_attachment=True,
+        download_name="sap_s4hana_links_template.json",
+    )
 
 
 @bp.post("/api/sap-links/preview")
