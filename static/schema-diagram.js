@@ -8,15 +8,14 @@
   function label(value) {
     return String(value == null ? "" : value)
       .replace(/[\u0000-\u001f\u007f]/g, " ")
-      .replace(/\\/g, "&#92;")
       .replace(/&/g, "&amp;")
+      .replace(/#/g, "&#35;")
+      .replace(/\\/g, "&#92;")
       .replace(/"/g, "&quot;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/\|/g, "&#124;")
-      .replace(/#/g, "&#35;")
-      .replace(new RegExp(String.fromCharCode(96), "g"), "&#96;")
-      ;
+      .replace(new RegExp(String.fromCharCode(96), "g"), "&#96;");
   }
   function id(value) {
     if (!Number.isSafeInteger(Number(value)) || Number(value) < 1) throw Error("Invalid graph ID");
