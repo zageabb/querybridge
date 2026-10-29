@@ -347,3 +347,25 @@ limits diagrams to 250 tables; filter by application or select a focus table.
 The rendering and API routes respect QueryBridge's existing UDA reverse-proxy
 prefix, including /apps/querybridge/. Do not expose the underlying Flask
 service outside the existing trusted network/application boundary.
+
+## AI schema proposals and Application labels
+
+The **AI Skills & Schema Proposals** page works with the current locally captured
+schema. Every table's optional `application_name` is included in the LLM's
+schema description. AI read-only SQL can now use `application_name` in
+`schema_tables` and `schema_fields`, and the endpoint application labels
+`left_application` / `right_application` in `schema_relationships`.
+
+For example, the AI can count captured tables belonging to **SAP S/4HANA**
+without confusing that user-assigned application label with the actual
+Databricks catalog/schema. Unassigned tables have NULL application names in
+the SQL views. The original catalog/schema/table and field identifiers are
+unchanged. These metadata views are isolated and read-only.
+
+**Review with no changes:** If the LLM returns `"operations": []`, the result
+is an informational *no changes* review, not a broken or stale proposal.
+There is nothing to apply; use **Dismiss** to close it. This also corrects
+previously saved no-operation reviews when the page reloads. For proposals
+with actual invalid or outdated operations, the page shows the validation
+reason and keeps Apply disabled. The server rejects direct attempts to apply
+empty proposals while retaining review history and approval requirements.
