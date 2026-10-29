@@ -16,7 +16,7 @@
       .replace(/\|/g, "&#124;")
       .replace(/#/g, "&#35;")
       .replace(new RegExp(String.fromCharCode(96), "g"), "&#96;")
-      .replace(/;/g, "&#59;");
+      ;
   }
   function id(value) {
     if (!Number.isSafeInteger(Number(value)) || Number(value) < 1) throw Error("Invalid graph ID");
