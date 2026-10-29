@@ -20,6 +20,7 @@ from flask import Flask, Response, flash, jsonify, redirect, render_template, re
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from internet_research import read_internet, search_internet
+from schema_answers import inventory_application, render_table_inventory
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "instance" / "querybridge.db"
@@ -1211,7 +1212,83 @@ def normalise_ai_operations(payload):
         "operations": [normalise_ai_operation(item) for item in operations],
     }
 
-def create_ai_schema_proposal(conn, request_text, selected_skill_keys=None):
+def store_schema_answer(conn, request_text, title, answer, skill_key="", model="QueryBridge metadata"):
+    """Save a read-only answer without creating any operations to apply."""
+    cursor = conn.execute(
+        """INSERT INTO qb_schema_proposals
+           (title, summary, skill_key, model, operations_json, request_kind,
+            request_text, status, created_at)
+           VALUES (?, ?, ?, ?, '[]', 'answer', ?, 'proposed', ?)""",
+        (
+            str(title or "Schema answer")[:240],
+            str(answer or "No answer returned.")[:50000],
+            skill_key, model, request_text, now_iso(),
+        ),
+    )
+    return cursor.lastrowid, 0, 0
+
+
+def create_ai_schema_proposal(conn, request_text, selected_skill_keys=None, intent="change"):
+    if intent not in ("answer", "change"):
+        raise ValueError("Unknown schema request type.")
+
+    # Answer table-list questions directly from the local SQLite schema,
+    # regardless of which form button was used or Ollama availability.
+    is_inventory, application = inventory_application(request_text)
+    if is_inventory:
+        title, answer = render_table_inventory(conn, application)
+        return store_schema_answer(
+            conn, request_text, title, answer,
+            skill_key="read-only-local-schema", model="QueryBridge local metadata",
+        )
+
+    if intent == "answer":
+        enabled = ai_skill_rows(conn, enabled_only=True)
+        selected = set(selected_skill_keys or [])
+        skills = [row for row in enabled if not selected or row["skill_key"] in selected]
+        if not skills:
+            raise ValueError("No enabled AI skills are selected.")
+        context = schema_context_text(conn, include_relationships=True, max_chars=70000)
+        system = (
+            "You are QueryBridge's read-only schema information assistant. "
+            "Answer the user's actual question directly using captured metadata, "
+            "not whether schema changes are necessary. If they request a list, "
+            "provide real names and relevant application/catalog/schema information. "
+            "Do not produce operations or propose modifications. Never invent a "
+            "table, column or relationship. When the context is too large or an "
+            "aggregate is needed, use local_schema_select first. You may use "
+            "internet_search and internet_read when necessary and enabled, "
+            "but distinguish external facts from local captured metadata. "
+            "Return a clear, useful answer; do not just say no changes required. "
+            "Tool requests must follow the existing JSON tool-call protocol. "
+            "\n\n" + local_schema_sql_reference()
+        )
+        user = (
+            "ACTIVE AI SKILLS\n" + ai_skill_context(skills)
+            + "\n\nUSER QUESTION\n" + request_text
+            + "\n\nCURRENT SCHEMA AND KNOWLEDGE\n" + context
+        )
+        raw, _ = run_schema_chat_agent(
+            conn,
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            max_tool_calls=8,
+            allow_internet=any(row["skill_key"] == "internet-research" for row in skills),
+        )
+        parsed = extract_json_payload(raw)
+        answer = (
+            parsed.get("answer") or parsed.get("response") or parsed.get("summary")
+            if isinstance(parsed, dict) else raw
+        )
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError("AI did not return a usable schema answer.")
+        settings = get_llm_settings(conn)
+        return store_schema_answer(
+            conn, request_text, "Schema answer — " + request_text[:185],
+            answer.strip(),
+            skill_key=",".join(row["skill_key"] for row in skills),
+            model=settings.get("model"),
+        )
+
     all_skills = ai_skill_rows(conn, enabled_only=True)
     selected = set(selected_skill_keys or [])
     skills = [row for row in all_skills if not selected or row["skill_key"] in selected]
@@ -1330,8 +1407,8 @@ Rules:
     cursor = conn.execute(
         """
         INSERT INTO qb_schema_proposals
-        (title, summary, skill_key, model, operations_json, status, created_at)
-        VALUES (?, ?, ?, ?, ?, 'proposed', ?)
+        (title, summary, skill_key, model, operations_json, request_kind, request_text, status, created_at)
+        VALUES (?, ?, ?, ?, ?, 'change', ?, 'proposed', ?)
         """,
         (
             proposal["title"],
@@ -1339,6 +1416,7 @@ Rules:
             ",".join(row["skill_key"] for row in skills),
             settings.get("model"),
             json.dumps(proposal["operations"], ensure_ascii=False),
+            request_text,
             now_iso(),
         ),
     )
