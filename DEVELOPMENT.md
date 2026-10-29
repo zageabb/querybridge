@@ -135,7 +135,7 @@ Owner/Agent: ChatGPT
 Branch: feature/searchable-schema-catalogue
 Depends on: existing captured SQLite schema and relationship provenance
 Can run in parallel with: non-overlapping development outside app.py, templates, styling and tests
-Integration status: PR #2, CI passed; merge to main pending
+Integration status: merged to main via PR #2 (squash commit 52e45a3930293a8ee3bf3893fb0a34b5ba6bfe02); user validation pending
 
 Requirement:
 A user-facing table of application, catalog, schema, table and field metadata, searchable
@@ -159,7 +159,7 @@ Evidence:
   write validation and reverse-proxy path.
 - CI: QueryBridge Python Check (includes pytest) and UDA Compatibility passed on PR #2.
 - Commit/PR: feature/searchable-schema-catalogue, https://github.com/zageabb/querybridge/pull/2.
-- Merged to intended branch: not yet.
+- Merged to intended branch: main, squash commit 52e45a3930293a8ee3bf3893fb0a34b5ba6bfe02.
 - User/business acceptance: pending user test in UDA.
 
 Completion criteria:
@@ -168,7 +168,7 @@ Completion criteria:
 - [x] Tests written.
 - [x] Automated tests pass.
 - [x] CI passes.
-- [ ] PR reviewed and merged.
+- [x] PR reviewed and merged.
 - [ ] User verifies schema search and joins in deployed UI.
 
 Notes:
