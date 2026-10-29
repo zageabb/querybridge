@@ -1,4 +1,4 @@
-"""No-login Admin, CSRF, integrity and reverse-proxy checks."""
+"""No-login Admin, worker-independent CSRF, integrity and proxy checks."""
 import pytest
 
 import app as qb
@@ -16,14 +16,17 @@ def client(monkeypatch, tmp_path):
 
 
 def csrf_for(client):
-    # Opening Admin directly issues the existing session its anti-CSRF token.
+    # Token is a double-submit cookie, independent of the Flask session.
     page = client.get("/admin")
     assert page.status_code == 200
     assert b"Metadata Administration" in page.data
     assert b"Sign in" not in page.data
     assert b"QUERYBRIDGE_ADMIN_PASSWORD" not in page.data
-    with client.session_transaction() as sess:
-        return sess["querybridge_csrf"]
+    token = page.get_data(as_text=True).split('window.querybridgeAdminToken = "')[1].split('"')[0]
+    assert len(token) >= 40
+    assert "qb_admin_csrf=" in page.headers["Set-Cookie"]
+    assert "HttpOnly" in page.headers["Set-Cookie"]
+    return token
 
 
 def change(client, token, action, data):
@@ -55,6 +58,23 @@ def test_csrf_protects_writes_and_uda_prefix(client):
         "/admin/api/change", json={"action": "create_table", "data": {}},
         headers={"X-CSRF-Token": "incorrect"},
     ).status_code == 403
+    assert change(client, token, "not-supported", {}).status_code == 400
+
+    # Origin checks add protection when the browser supplies origin metadata.
+    malicious = {
+        "X-CSRF-Token": token,
+        "Origin": "https://another.example.org",
+        "Sec-Fetch-Site": "cross-site",
+    }
+    assert client.post(
+        "/admin/api/change", json={"action": "create_table", "data": {"table_name": "bad"}},
+        headers=malicious,
+    ).status_code == 403
+    assert client.post(
+        "/admin/api/change", json={"action": "create_table", "data": {"table_name": "bad"}},
+        headers={"X-CSRF-Token": token, "Origin": "http://localhost", "Sec-Fetch-Site": "same-origin"},
+    ).status_code == 200
+
     headers = {
         "X-Forwarded-Prefix": "/apps/querybridge",
         "X-Forwarded-Proto": "https",
@@ -64,7 +84,28 @@ def test_csrf_protects_writes_and_uda_prefix(client):
     assert result.status_code == 200
     assert b'<base href="/apps/querybridge/">' in result.data
     assert b"/apps/querybridge/static/admin.js" in result.data
-    assert change(client, token, "not-supported", {}).status_code == 400
+    assert "Path=/apps/querybridge/" in result.headers["Set-Cookie"]
+    assert "Secure" in result.headers["Set-Cookie"]
+
+
+def test_csrf_survives_server_secret_rotation(client):
+    # Regression: multiple web workers may have distinct Flask session secrets.
+    token = csrf_for(client)
+    previous_key = qb.app.secret_key
+    try:
+        qb.app.secret_key = "a different worker's signing key"
+        response = change(client, token, "create_table", {"table_name": "survived"})
+        assert response.status_code == 200, response.json
+        assert client.get("/admin/api/overview").json["stats"]["tables"] == 1
+    finally:
+        qb.app.secret_key = previous_key
+
+
+def test_admin_csrf_cookie_required(client):
+    token = csrf_for(client)
+    client.delete_cookie("qb_admin_csrf")
+    assert change(client, token, "create_table", {"table_name": "no_cookie"}).status_code == 403
+    assert client.get("/admin/api/overview").json["stats"]["tables"] == 0
 
 
 def test_full_metadata_admin_workflow(client):
