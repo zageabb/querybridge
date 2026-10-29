@@ -447,3 +447,58 @@ Completion criteria:
 - [x] Full tests and CI green.
 - [x] PR merged into main.
 - [ ] User verifies file import, table listing and missing metadata in deployed UDA.
+
+
+
+### DEV-008 — SAP DDIC complete dictionary import with descriptions
+
+Status: IN PROGRESS
+Priority: High
+Owner/Agent: ChatGPT
+Branch: feature/sap-ddic-full-dictionary-import
+Depends on: DEV-007 SAP link JSON import, metadata application labels
+Integration status: feature branch, testing/merge pending
+
+User requirement:
+Pull the full standard SAP S/4HANA table dictionary with field descriptions
+and allow importing all metadata without assigning Databricks catalog/schema
+or creating named schema snapshots.
+
+Limitations:
+There is no single externally available, release-independent "complete" SAP
+table and field dictionary. The installed system's DDIC is the authoritative
+source. Access/permission to the specific SAP environment is not connected,
+so the importer accepts its exported records but cannot fetch them remotely.
+
+Implementation:
+- Supply a read-only HANA SQL template exporting activated DD02L/DD02T/DD03L
+  plus English description text from DD04T/DD03T to CSV.
+- Add scripts/import_sap_ddic.py for efficient CSV streaming import of all
+  captured table/field rows (dry-run default; explicit --apply).
+- Preserve existing table/field records; fill blank descriptions/types only.
+- Add qb_tables.description with old-database migration; maintain snapshot
+  roundtrip and backward compatibility.
+- Expose descriptions to Admin, Schema Explorer search and AI schema context.
+- Default names match sap_* convention; leave new local Catalog/Schema NULL.
+- No synthetic relationships, snapshot saves, source database writes, or
+  automatic Databricks operations.
+- Add Admin discoverability and downloadable SQL template, README documentation.
+- Test rollback, duplicate table ambiguity, idempotence, descriptions and
+  snapshot compatibility.
+
+Evidence:
+- Files: scripts/export_sap_ddic_hana.sql, scripts/import_sap_ddic.py, app.py,
+  admin_console.py, templates/admin.html, static/admin.js,
+  tests/test_sap_ddic_bulk_import.py, README.md and DEVELOPMENT.md.
+- Tests: pending.
+- CI: pending.
+- PR: pending.
+- Merged to main: no.
+- User acceptance: pending actual SAP CSV and Ubuntu bulk run.
+
+Completion criteria:
+- [x] Read-only export template, importer, metadata model and tests added.
+- [ ] Relevant tests passing.
+- [ ] CI green.
+- [ ] PR merged.
+- [ ] Real SAP dictionary export/Ubuntu deployment verified.

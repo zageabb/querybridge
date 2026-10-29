@@ -443,3 +443,83 @@ to or modify SAP, Databricks or external data. It is available to anyone who
 can reach the existing password-free Admin screen, with the same CSRF
 validation. Files are limited to 1 MB in the browser and the importer
 enforces table/field/join counts server-side.
+
+
+
+## Bulk import the SAP S/4HANA ABAP Dictionary (table and field descriptions)
+
+There is no single version-independent public inventory of **all** SAP S/4HANA
+tables and fields. The reliable source is the **installed SAP system's**
+activated ABAP Dictionary. Different S/4HANA versions, editions, modules,
+extensions, and customer modifications change the actual metadata.
+
+A read-only HANA export template is available in
+`scripts/export_sap_ddic_hana.sql` and as a download in
+**Admin → SAP S/4HANA full dictionary import**. It collects:
+
+| CSV column | Source |
+|---|---|
+| TABLE_NAME | DD02L-TABNAME |
+| TABLE_DESCRIPTION | DD02T-DDTEXT, English |
+| FIELD_NAME | DD03L-FIELDNAME |
+| FIELD_DESCRIPTION | DD04T-DDTEXT (data-element text), fallback DD03T-DDTEXT |
+| DATA_TYPE | DD03L-DATATYPE |
+| POSITION | DD03L-POSITION |
+| LENGTH | DD03L-LENG |
+| DECIMALS | DD03L-DECIMALS |
+
+The export template uses HANA SQL for an authorised administrator with
+access to the ABAP database schema. Replace its `SAPABAP1` example with the
+real database schema. It filters for active transparent DDIC tables, skips
+.include pseudo-fields, and removes table names beginning with Z/Y. **This
+is an approximation of "standard tables", not a certified SAP software
+component/ownership classification**; partner namespaces may still be
+present. Only tables with matching field definitions are returned.
+For S/4HANA Cloud Public Edition, an equivalent dictionary export through
+supported/released APIs or your SAP team is required, rather than direct DB SQL.
+CDS views and released APIs are separate metadata sets, not the same as the
+physical DDIC TRANSP table list.
+
+Export the query result as a UTF-8 CSV with a header and rows sorted by
+TABLE_NAME / POSITION. Then stop QueryBridge writes during the bulk import
+and back up its SQLite database before applying the change.
+
+From the QueryBridge repository on the Ubuntu server:
+
+    # Dry-run: preview counts; nothing is written
+    python scripts/import_sap_ddic.py sap_ddic.csv --db instance/querybridge.db
+
+    # Apply only after reviewing the counts
+    python scripts/import_sap_ddic.py sap_ddic.csv --db instance/querybridge.db --apply
+
+    # Optional: use SAP's original unprefixed table names, rather than sap_ekko
+    python scripts/import_sap_ddic.py sap_ddic.csv --db instance/querybridge.db --prefix "" --apply
+
+The default `sap_` prefix matches the user's captured `sap_ekko` and
+`sap_ekpo` naming convention. Tables missing from QueryBridge are added to
+the **working local metadata** with `application_name = SAP S/4HANA`,
+`catalog = NULL` and `schema_name = NULL`. Field types are kept as ABAP
+Dictionary type labels (e.g. `CHAR(10)`), not guessed Databricks types.
+Table descriptions are in `qb_tables.description` and field descriptions
+in `qb_columns.comment`. An existing table or field is *not overwritten*;
+the importer fills only blank descriptions and blank data types.
+
+Import is stream/grouped by table, transactional, and repeatable. A malformed
+file or ambiguous duplicate table identity aborts and rolls back the whole
+import. A dry run is available without writes. It does **not** save or alter
+named schema snapshots, create joins, run automatic relationship inference,
+connect to SAP, or write Databricks. Relationship evidence must be reviewed
+and imported separately with **Admin → SAP S/4HANA relationship import**.
+
+QueryBridge persists table descriptions in schema snapshots **only when you
+explicitly save one later**. Older snapshots without a table description still
+restore normally. Field descriptions are editable in Admin, and table descriptions
+are now editable there as well. AI's read-only `schema_tables` view exposes
+`description` and the schema text context includes it; Schema Explorer searches
+both table and field descriptions.
+
+**Scale:** Full-system DDIC exports can be very large. The small JSON join
+upload accepts only curated subsets; the bulk CSV utility is the supported
+large-import path. For very large systems consider importing the SCM/SAP MM
+modules you actually need first, or run the import on a maintenance copy of
+the SQLite database and swap it into service after successful validation.

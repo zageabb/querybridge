@@ -65,6 +65,7 @@
                     <label>Table name <input name="table_name" maxlength="200" required></label>
                     <label>Table type <input name="table_type" maxlength="100" placeholder="TABLE, VIEW …"></label>
                 </div>
+                <label>Table description <textarea name="description" rows="2" maxlength="1000" placeholder="SAP Dictionary description or your own notes"></textarea></label>
                 <div class="admin-actions">
                     <button class="primary" type="submit" id="admin-save-table">Save table</button>
                     <button class="danger" type="button" id="admin-delete-table" hidden>Delete table</button>
@@ -118,6 +119,28 @@
             </div>
         </section>
     </div>
+    <section class="panel sap-import-panel" id="sap-ddic-import">
+        <div class="admin-section-header">
+            <div>
+                <h2>SAP S/4HANA full dictionary import</h2>
+                <p>Bulk load table names, field names, data types and descriptions into QueryBridge's working metadata.</p>
+            </div>
+            <a class="secondary small" href="{{ url_for('admin.sap_ddic_query') }}" download="export_sap_ddic_hana.sql">Download SAP export SQL</a>
+        </div>
+        <div class="admin-warning">
+            <strong>Full dictionary imports are performed on the Ubuntu server.</strong>
+            Ask your SAP/ABAP administrator to run the read-only query and export a CSV
+            ordered by table and field position. The importer runs a dry-run by default,
+            then applies only when you request it. Missing tables use the SAP S/4HANA
+            application label with no invented Catalog or Schema. No snapshots or joins
+            are created automatically.
+        </div>
+        <p><strong>Preview (Ubuntu CLI):</strong></p>
+        <pre>python scripts/import_sap_ddic.py sap_ddic.csv --db instance/querybridge.db</pre>
+        <p><strong>Apply after reviewing:</strong></p>
+        <pre>python scripts/import_sap_ddic.py sap_ddic.csv --db instance/querybridge.db --apply</pre>
+        <p class="muted">Use this full CSV importer for large metadata exports. Use the separate JSON import below for reviewed field-to-field SAP relationships.</p>
+    </section>
     <section class="panel sap-import-panel" id="sap-link-import">
         <div class="admin-section-header">
             <div>

@@ -60,6 +60,7 @@ def init_db():
             schema_name TEXT,
             table_name TEXT NOT NULL,
             application_name TEXT,
+            description TEXT,
             table_type TEXT,
             is_temporary INTEGER DEFAULT 0,
             raw_source TEXT,
@@ -188,6 +189,8 @@ def init_db():
     table_columns = {row["name"] for row in conn.execute("PRAGMA table_info(qb_tables)").fetchall()}
     if "application_name" not in table_columns:
         conn.execute("ALTER TABLE qb_tables ADD COLUMN application_name TEXT")
+    if "description" not in table_columns:
+        conn.execute("ALTER TABLE qb_tables ADD COLUMN description TEXT")
 
     proposal_columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(qb_schema_proposals)").fetchall()
@@ -1444,6 +1447,7 @@ def build_local_schema_analysis_db(conn):
             schema_name TEXT,
             table_name TEXT,
             application_name TEXT,
+            description TEXT,
             table_type TEXT,
             is_temporary INTEGER,
             captured_at TEXT
@@ -1500,8 +1504,8 @@ def build_local_schema_analysis_db(conn):
     analysis.executemany(
         """
         INSERT INTO schema_tables
-        (table_id, catalog, schema_name, table_name, application_name, table_type, is_temporary, captured_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (table_id, catalog, schema_name, table_name, application_name, description, table_type, is_temporary, captured_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -1510,13 +1514,14 @@ def build_local_schema_analysis_db(conn):
                 row["schema_name"],
                 row["table_name"],
                 row["application_name"],
+                row["description"],
                 row["table_type"],
                 row["is_temporary"],
                 row["captured_at"],
             )
             for row in conn.execute(
                 """
-                SELECT id, catalog, schema_name, table_name, application_name, table_type, is_temporary, captured_at
+                SELECT id, catalog, schema_name, table_name, application_name, description, table_type, is_temporary, captured_at
                 FROM qb_tables
                 ORDER BY COALESCE(catalog,''), COALESCE(schema_name,''), table_name
                 """
@@ -1719,7 +1724,7 @@ def local_schema_sql_reference():
     return """LOCAL SCHEMA SQL TABLES
 
 schema_tables(
-  table_id, catalog, schema_name, table_name, application_name, table_type, is_temporary, captured_at
+  table_id, catalog, schema_name, table_name, application_name, description, table_type, is_temporary, captured_at
 )
 
 schema_fields(
@@ -2071,10 +2076,19 @@ def schema_context_text(conn, include_relationships=True, max_chars=60000):
     ).fetchall()
 
     lines = ["QUERYBRIDGE WORKING SCHEMA"]
+    # Full SAP DDIC exports can have very large field counts. Reserve part of
+    # the context budget for relationships/knowledge and avoid fetching every
+    # field before truncating the prompt.
+    table_budget = max(2000, int(max_chars * 0.60))
+    table_used = len(lines[0])
+    table_limit_reached = False
     for table in tables:
         lines.append("")
+        table_used += 1
         lines.append(f"TABLE {qualified_name(table)}")
         lines.append(f"APPLICATION {table['application_name'] or 'Unassigned'} (user-assigned label, not catalog/schema)")
+        if table["description"]:
+            lines.append(f"TABLE DESCRIPTION {table['description']}")
         columns = conn.execute(
             """
             SELECT column_name, data_type, nullable, comment
@@ -2091,6 +2105,16 @@ def schema_context_text(conn, include_relationships=True, max_chars=60000):
             if col["comment"]:
                 detail += f" -- {col['comment']}"
             lines.append(detail)
+            table_used += len(detail) + 1
+            if table_used >= table_budget:
+                table_limit_reached = True
+                break
+        if table_limit_reached:
+            lines.append(
+                "[Additional table/field descriptions omitted; query the "
+                "read-only schema_tables and schema_fields views for the full dictionary.]"
+            )
+            break
 
     if include_relationships:
         relationships = conn.execute(
@@ -2360,6 +2384,7 @@ def serialize_working_schema(conn):
                 "schema_name": table["schema_name"],
                 "table_name": table["table_name"],
                 "application_name": table["application_name"],
+                "description": table["description"],
                 "table_type": table["table_type"],
                 "is_temporary": table["is_temporary"],
                 "raw_source": table["raw_source"],
@@ -2468,14 +2493,15 @@ def restore_working_schema(conn, payload):
         cursor = conn.execute(
             """
             INSERT INTO qb_tables
-            (catalog, schema_name, table_name, application_name, table_type, is_temporary, raw_source, captured_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (catalog, schema_name, table_name, application_name, description, table_type, is_temporary, raw_source, captured_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 table.get("catalog"),
                 table.get("schema_name"),
                 table["table_name"],
                 table.get("application_name"),
+                table.get("description"),
                 table.get("table_type"),
                 int(bool(table.get("is_temporary", 0))),
                 table.get("raw_source"),
@@ -4621,7 +4647,7 @@ def api_catalogue_fields():
     searchable = " || ' ' || ".join(
         "COALESCE(" + field + ", '')"
         for field in (
-            "t.application_name", "t.catalog", "t.schema_name", "t.table_name",
+            "t.application_name", "t.catalog", "t.schema_name", "t.table_name", "t.description",
             "t.table_type", "c.column_name", "c.data_type", "c.comment",
         )
     )
