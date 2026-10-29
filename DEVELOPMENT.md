@@ -269,12 +269,12 @@ Completion criteria:
 
 ### DEV-004 — Fix Admin security-token error in UDA deployment
 
-Status: 🔨 IN PROGRESS
+Status: ⏳ AWAITING ACCEPTANCE
 Priority: High
 Owner/Agent: ChatGPT
 Branch: fix/admin-csrf-worker-safe
 Depends on: DEV-003 password-free Admin
-Integration status: implementation/testing in progress
+Integration status: merged into main via PR #5; deployed user confirmation pending
 
 Observed:
 User reported "Invalid administration security token. Reload Admin and retry."
@@ -295,15 +295,15 @@ Implementation:
 
 Evidence:
 - Files: admin_console.py, tests/test_admin.py, README.md.
-- Tests: pending GitHub Actions; test for secret rotation and forwarded path.
-- CI: pending.
-- PR: pending.
-- Merged to main: no.
+- Tests: passed, including secret-rotation, forwarded prefix/cookie path, missing cookie and cross-origin guards.
+- CI: QueryBridge Python Check and UDA Compatibility both passed on PR #5.
+- PR: https://github.com/zageabb/querybridge/pull/5
+- Merged to main: yes, squash commit e50461e7e6abe12c1c6b726ae62a7242e0a828d2.
 - User acceptance: pending after UDA deployment.
 
 Completion criteria:
 - [x] Code and regression tests added.
-- [ ] Tests pass.
-- [ ] Both CI workflows green.
-- [ ] PR merged to main.
+- [x] Tests pass.
+- [x] Both CI workflows green.
+- [x] PR merged to main.
 - [ ] User verifies editing in deployed Admin.
