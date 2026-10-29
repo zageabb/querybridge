@@ -243,3 +243,16 @@ QueryBridge records the source of every stored relationship. The **Knowledge** p
 **Clear auto-generated links** deletes only relationships with source `auto`. It preserves relationships whose source is `llm`, `ai-approved`, `manual`, snapshot/restored provenance, and approved relationships observed in imported SQL.
 
 Legacy heuristic inference is disabled by default. This prevents cleared `auto` links from being recreated when table metadata is refreshed, an AI schema proposal is applied, or a snapshot without explicit relationships is loaded. It can be explicitly re-enabled from the Relationship controls panel if needed.
+
+
+## Schema Explorer
+
+Open **Schema Explorer** from the top navigation to browse the **current working schema** as a searchable table.
+
+- Search over application label, catalog, schema, table name, field name, field type and field comment. Search is case-insensitive and runs against local SQLite (75 rows per page).
+- The **Application** filter uses an optional source-application label, separate from Databricks catalog and schema. Select any field, type an application name (for example SAP S/4HANA, P6 or TAIJU), and select **Save application** to label its table. An unlabelled table appears as *Unassigned*. The app name is a user-assigned description, not an inferred Databricks identity.
+- Selecting a field opens the inspector with all stored relationships in either direction, the target field, equality join condition, relationship source, confidence and notes. Fields with no stored join show an explicit no-relationships state; no joins are guessed by the browser.
+- Application labels are preserved in named schema snapshots and portable exports. Older snapshot files still load, leaving application labels unassigned.
+- A table with no captured columns is still visible in the browser. Application assignments are stored locally only; they never write to Databricks.
+
+The browser displays the active working schema, **not all saved schema snapshots at once**. Load a saved snapshot from the Metadata page to explore it.

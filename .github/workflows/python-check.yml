@@ -14,9 +14,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt pytest
       - name: Compile
         run: python -m py_compile app.py
+      - name: Automated tests
+        run: python -m pytest -q tests
       - name: Flask import and database smoke test
         run: |
           python - <<'PY'
