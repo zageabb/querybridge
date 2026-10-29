@@ -403,12 +403,12 @@ Completion criteria:
 
 ### DEV-007 — Actual schema answers and SAP link imports
 
-Status: IN PROGRESS
+Status: AWAITING ACCEPTANCE
 Priority: High
 Owner/Agent: ChatGPT
 Branch: fix/ai-schema-informational-answers
 Depends on: DEV-006 application metadata, Admin and schema proposal validation
-Integration status: feature branch; CI and merge pending
+Integration status: merged to main via PR #8, deployed user acceptance pending
 
 Observed:
 AI Skills "List of tables" produced proposal #9 with a generic "no schema
@@ -437,13 +437,13 @@ Evidence:
   templates/ai_skills.html, templates/admin.html, static/sap-links.js,
   static/style.css, samples/sap_s4hana_links_template.json,
   tests/test_schema_answers_and_sap_import.py, README.md, CI workflow.
-- CI: pending.
-- PR: pending.
-- Merge to main: pending.
+- CI: QueryBridge Python Check and UDA Compatibility both green for PR #8 head 7a57e691ab39bccffad146ffa9456111b2f3e8f3.
+- PR: https://github.com/zageabb/querybridge/pull/8
+- Merge to main: yes, squash commit 30b31ced88d2d2258242b96ce2c104ed4f0f192d.
 - UDA user acceptance: pending.
 
 Completion criteria:
 - [x] Code, sample and tests added.
-- [ ] Full tests and CI green.
-- [ ] PR merged into main.
+- [x] Full tests and CI green.
+- [x] PR merged into main.
 - [ ] User verifies file import, table listing and missing metadata in deployed UDA.
