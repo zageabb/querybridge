@@ -57,9 +57,9 @@ def test_preview_does_not_write_and_import_creates_missing_without_catalog_or_sc
     preview = post(client, token, "preview", manifest).json["preview"]
     assert preview["application"] == "SAP S/4HANA"
     assert preview["counts"] == {
-        "tables_to_add": 3,
-        "fields_to_add": 5,
-        "links_to_add": 2,
+        "tables_to_add": 8,
+        "fields_to_add": 14,
+        "links_to_add": 10,
         "links_already_present": 0,
     }
 
@@ -76,11 +76,11 @@ def test_preview_does_not_write_and_import_creates_missing_without_catalog_or_sc
     tables = conn.execute(
         "SELECT table_name,application_name,catalog,schema_name FROM qb_tables ORDER BY table_name"
     ).fetchall()
-    assert [t["table_name"] for t in tables] == ["EKKO", "EKPO", "LFA1"]
+    assert [t["table_name"] for t in tables] == ["sap_ekbe", "sap_ekes", "sap_ekko", "sap_ekpo", "sap_eket", "sap_lfa1", "sap_makt", "sap_mara"]
     assert all(t["application_name"] == "SAP S/4HANA" for t in tables)
     assert all(t["catalog"] is None and t["schema_name"] is None for t in tables)
-    assert conn.execute("SELECT COUNT(*) FROM qb_columns").fetchone()[0] == 5
-    assert conn.execute("SELECT COUNT(*) FROM qb_relationships").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM qb_columns").fetchone()[0] == 14
+    assert conn.execute("SELECT COUNT(*) FROM qb_relationships").fetchone()[0] == 10
     assert conn.execute("SELECT COUNT(*) FROM qb_schema_snapshots").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM qb_admin_audit WHERE action='import_sap_links'").fetchone()[0] == 1
     assert conn.execute("SELECT DISTINCT source FROM qb_relationships").fetchone()[0] == "sap-import"
@@ -91,12 +91,12 @@ def test_preview_does_not_write_and_import_creates_missing_without_catalog_or_sc
         "tables_to_add": 0,
         "fields_to_add": 0,
         "links_to_add": 0,
-        "links_already_present": 2,
+        "links_already_present": 10,
     }
     assert post(client, token, "apply", manifest, confirm=True).status_code == 200
     conn = qb.db()
-    assert conn.execute("SELECT COUNT(*) FROM qb_tables").fetchone()[0] == 3
-    assert conn.execute("SELECT COUNT(*) FROM qb_relationships").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM qb_tables").fetchone()[0] == 8
+    assert conn.execute("SELECT COUNT(*) FROM qb_relationships").fetchone()[0] == 10
     conn.close()
 
 
@@ -105,10 +105,10 @@ def test_existing_table_and_field_preserved_and_missing_field_added(client):
     conn = qb.db()
     conn.execute(
         """INSERT INTO qb_tables(catalog,schema_name,table_name,application_name,captured_at)
-           VALUES('customcat','proc','EKKO',NULL,?)""",
+           VALUES('customcat','proc','sap_ekko',NULL,?)""",
         (qb.now_iso(),),
     )
-    table_id = conn.execute("SELECT id FROM qb_tables WHERE table_name='EKKO'").fetchone()[0]
+    table_id = conn.execute("SELECT id FROM qb_tables WHERE table_name='sap_ekko'").fetchone()[0]
     conn.execute(
         "INSERT INTO qb_columns(table_id,ordinal_position,column_name,data_type) VALUES (?,?,?,?)",
         (table_id, 1, "EBELN", "EXISTING_TYPE"),
@@ -130,7 +130,7 @@ def test_existing_table_and_field_preserved_and_missing_field_added(client):
         "SELECT COUNT(*) FROM qb_columns WHERE table_id=? AND column_name='LIFNR'",
         (table_id,),
     ).fetchone()[0] == 1
-    assert conn.execute("SELECT COUNT(*) FROM qb_tables WHERE lower(table_name)='ekko'").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM qb_tables WHERE lower(table_name)='sap_ekko'").fetchone()[0] == 1
     conn.close()
 
 
@@ -141,7 +141,7 @@ def test_invalid_and_ambiguous_rejected_without_partial_writes(client):
         lambda x: x.update({"format": "invalid"}),
         lambda x: x["links"][0].update({"confidence": 4}),
         lambda x: x["links"].append(copy.deepcopy(x["links"][0])),
-        lambda x: x["links"][0]["right"].update({"table": "EKKO"}),
+        lambda x: x["links"][0]["right"].update({"table": "sap_ekko"}),
     ]:
         copy_data = copy.deepcopy(manifest)
         mutate(copy_data)
@@ -151,7 +151,7 @@ def test_invalid_and_ambiguous_rejected_without_partial_writes(client):
     for schema in ("s1", "s2"):
         conn.execute(
             """INSERT INTO qb_tables(catalog,schema_name,table_name,captured_at)
-               VALUES ('cat',?,?,?)""", (schema, "EKKO", qb.now_iso()),
+               VALUES ('cat',?,?,?)""", (schema, "sap_ekko", qb.now_iso()),
         )
     conn.commit()
     conn.close()
@@ -186,7 +186,7 @@ def test_list_tables_returns_real_captured_names_without_llm(client, monkeypatch
     conn = qb.db()
     conn.execute(
         """INSERT INTO qb_tables(catalog,schema_name,table_name,application_name,captured_at)
-           VALUES('testcat','purchase','EKKO','SAP S/4HANA',?)""",
+           VALUES('testcat','purchase','sap_ekko','SAP S/4HANA',?)""",
         (qb.now_iso(),),
     )
     conn.commit()
@@ -202,7 +202,7 @@ def test_list_tables_returns_real_captured_names_without_llm(client, monkeypatch
     )
     assert response.status_code == 200
     text = response.get_data(as_text=True)
-    assert "EKKO" in text and "testcat.purchase.EKKO" in text
+    assert "sap_ekko" in text and "testcat.purchase.EKKO" in text
     assert "Schema answer" in text or "Table inventory" in text
     assert "No schema changes were proposed. This is an informational review" not in text
     conn = qb.db()
@@ -224,7 +224,7 @@ def test_asking_application_filtered_inventory_and_no_apply_button(client):
         follow_redirects=True,
     )
     text = response.get_data(as_text=True)
-    assert "EKKO" in text and "EKPO" in text
+    assert "sap_ekko" in text and "EKPO" in text
     assert 'proposal-status answer' in text
     assert "Read-only answer from the current local schema" in text
     # No Apply button inside an informational record.
