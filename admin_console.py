@@ -19,7 +19,7 @@ ADMIN_CSRF_COOKIE = "qb_admin_csrf"
 _db = None
 _now = None
 
-TABLE_COLUMNS = ("catalog", "schema_name", "table_name", "application_name", "table_type")
+TABLE_COLUMNS = ("catalog", "schema_name", "table_name", "application_name", "description", "table_type")
 FIELD_COLUMNS = ("column_name", "data_type", "nullable", "comment", "ordinal_position")
 
 
@@ -220,7 +220,7 @@ def table_details(table_id):
     conn = _db()
     try:
         table = conn.execute(
-            """SELECT id, catalog, schema_name, table_name, application_name, table_type
+            """SELECT id, catalog, schema_name, table_name, application_name, description, table_type
                FROM qb_tables WHERE id=?""", (table_id,)
         ).fetchone()
         if table is None:
@@ -260,6 +260,7 @@ def table_payload(payload):
         "schema_name": optional(payload.get("schema_name"), "Schema"),
         "table_name": clean_text(payload.get("table_name"), "Table name", required=True),
         "application_name": optional(payload.get("application_name"), "Application", 120),
+        "description": optional(payload.get("description"), "Table description", 1000),
         "table_type": optional(payload.get("table_type"), "Table type", 100),
     }
 
@@ -301,15 +302,15 @@ def perform_change(conn, action, data):
         if action == "create_table":
             cur = conn.execute(
                 """INSERT INTO qb_tables
-                   (catalog,schema_name,table_name,application_name,table_type,captured_at)
-                   VALUES (?,?,?,?,?,?)""",
+                   (catalog,schema_name,table_name,application_name,description,table_type,captured_at)
+                   VALUES (?,?,?,?,?,?,?)""",
                 (*[values[k] for k in TABLE_COLUMNS], _now()),
             )
             table_id = cur.lastrowid
         else:
             conn.execute(
                 """UPDATE qb_tables SET catalog=?,schema_name=?,table_name=?,
-                   application_name=?,table_type=? WHERE id=?""",
+                   application_name=?,description=?,table_type=? WHERE id=?""",
                 (*[values[k] for k in TABLE_COLUMNS], table_id),
             )
         log_change(conn, action, "table", table_id, old, values)
