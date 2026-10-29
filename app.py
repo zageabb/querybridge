@@ -50,6 +50,7 @@ def init_db():
             catalog TEXT,
             schema_name TEXT,
             table_name TEXT NOT NULL,
+            application_name TEXT,
             table_type TEXT,
             is_temporary INTEGER DEFAULT 0,
             raw_source TEXT,
@@ -163,6 +164,10 @@ def init_db():
         );
         """
     )
+    table_columns = {row["name"] for row in conn.execute("PRAGMA table_info(qb_tables)").fetchall()}
+    if "application_name" not in table_columns:
+        conn.execute("ALTER TABLE qb_tables ADD COLUMN application_name TEXT")
+
     relationship_columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(qb_relationships)").fetchall()
     }
@@ -2233,6 +2238,7 @@ def serialize_working_schema(conn):
                 "catalog": table["catalog"],
                 "schema_name": table["schema_name"],
                 "table_name": table["table_name"],
+                "application_name": table["application_name"],
                 "table_type": table["table_type"],
                 "is_temporary": table["is_temporary"],
                 "raw_source": table["raw_source"],
@@ -2341,13 +2347,14 @@ def restore_working_schema(conn, payload):
         cursor = conn.execute(
             """
             INSERT INTO qb_tables
-            (catalog, schema_name, table_name, table_type, is_temporary, raw_source, captured_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (catalog, schema_name, table_name, application_name, table_type, is_temporary, raw_source, captured_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 table.get("catalog"),
                 table.get("schema_name"),
                 table["table_name"],
+                table.get("application_name"),
                 table.get("table_type"),
                 int(bool(table.get("is_temporary", 0))),
                 table.get("raw_source"),
@@ -4418,6 +4425,174 @@ def build_sql_from_imported_state(conn, fields, imported_state, table_aliases=No
 
     sql_lines.append(";")
     return "\n".join(sql_lines), warnings
+
+
+
+@app.get("/catalogue")
+def catalogue():
+    """Read-only schema dictionary and optional source-application labels."""
+    conn = db()
+    stats = {
+        "tables": conn.execute("SELECT COUNT(*) FROM qb_tables").fetchone()[0],
+        "fields": conn.execute("SELECT COUNT(*) FROM qb_columns").fetchone()[0],
+        "joins": conn.execute("SELECT COUNT(*) FROM qb_relationships").fetchone()[0],
+    }
+    applications = [
+        row["application_name"]
+        for row in conn.execute(
+            """SELECT DISTINCT application_name FROM qb_tables
+               WHERE application_name IS NOT NULL AND TRIM(application_name) <> ''
+               ORDER BY application_name COLLATE NOCASE"""
+        ).fetchall()
+    ]
+    conn.close()
+    return render_template("catalogue.html", stats=stats, applications=applications)
+
+
+@app.get("/api/catalogue/fields")
+def api_catalogue_fields():
+    """Paginated server-side search across captured table and field metadata."""
+    query = (request.args.get("q") or "").strip()[:160]
+    application = (request.args.get("application") or "").strip()[:120]
+    try:
+        page = max(1, min(int(request.args.get("page", "1")), 100000))
+    except (TypeError, ValueError):
+        page = 1
+    page_size = 75
+    searchable = " || ' ' || ".join(
+        "COALESCE(" + field + ", '')"
+        for field in (
+            "t.application_name", "t.catalog", "t.schema_name", "t.table_name",
+            "t.table_type", "c.column_name", "c.data_type", "c.comment",
+        )
+    )
+    where = []
+    params = []
+    if query:
+        where.append(f"instr(lower({searchable}), lower(?)) > 0")
+        params.append(query)
+    if application:
+        where.append("t.application_name = ?")
+        params.append(application)
+    clause = "WHERE " + " AND ".join(where) if where else ""
+    from_sql = "FROM qb_tables t LEFT JOIN qb_columns c ON c.table_id = t.id "
+    conn = db()
+    try:
+        total = conn.execute(
+            "SELECT COUNT(*) " + from_sql + clause, params
+        ).fetchone()[0]
+        rows = conn.execute(
+            """
+            SELECT t.id AS table_id, t.application_name, t.catalog, t.schema_name,
+                   t.table_name, t.table_type, c.id AS field_id,
+                   c.column_name, c.data_type, c.nullable, c.comment,
+                   (SELECT COUNT(*) FROM qb_relationships r
+                    WHERE r.left_column_id = c.id OR r.right_column_id = c.id) AS join_count
+            """ + from_sql + clause + """
+            ORDER BY COALESCE(t.application_name, '') COLLATE NOCASE,
+                     COALESCE(t.catalog, '') COLLATE NOCASE,
+                     COALESCE(t.schema_name, '') COLLATE NOCASE,
+                     t.table_name COLLATE NOCASE, c.ordinal_position, c.id
+            LIMIT ? OFFSET ?
+            """,
+            [*params, page_size, (page - 1) * page_size],
+        ).fetchall()
+        return jsonify({
+            "ok": True, "rows": [dict(row) for row in rows],
+            "total": total, "page": page, "page_size": page_size,
+        })
+    finally:
+        conn.close()
+
+
+@app.get("/api/catalogue/fields/<int:field_id>/joins")
+def api_catalogue_field_joins(field_id):
+    """Show all stored joins touching the selected field, on either side."""
+    conn = db()
+    try:
+        field = conn.execute(
+            """
+            SELECT c.id, c.table_id, c.column_name, c.data_type, c.comment,
+                   t.application_name, t.catalog, t.schema_name, t.table_name
+            FROM qb_columns c JOIN qb_tables t ON t.id = c.table_id
+            WHERE c.id = ?
+            """,
+            (field_id,),
+        ).fetchone()
+        if not field:
+            return jsonify({"ok": False, "error": "Field not found."}), 404
+        rows = conn.execute(
+            """
+            SELECT r.id, r.confidence, r.source, r.notes,
+                   lc.id AS left_id, lc.column_name AS left_column,
+                   lt.catalog AS left_catalog, lt.schema_name AS left_schema,
+                   lt.table_name AS left_table, lt.application_name AS left_application,
+                   rc.id AS right_id, rc.column_name AS right_column,
+                   rt.catalog AS right_catalog, rt.schema_name AS right_schema,
+                   rt.table_name AS right_table, rt.application_name AS right_application
+            FROM qb_relationships r
+            JOIN qb_columns lc ON lc.id = r.left_column_id
+            JOIN qb_tables lt ON lt.id = r.left_table_id
+            JOIN qb_columns rc ON rc.id = r.right_column_id
+            JOIN qb_tables rt ON rt.id = r.right_table_id
+            WHERE r.left_column_id = ? OR r.right_column_id = ?
+            ORDER BY r.confidence DESC, r.id
+            """,
+            (field_id, field_id),
+        ).fetchall()
+        links = []
+        for row in rows:
+            selected_left = row["left_id"] == field_id
+            remote = "right" if selected_left else "left"
+            left_table = {
+                "catalog": row["left_catalog"], "schema_name": row["left_schema"],
+                "table_name": row["left_table"],
+            }
+            right_table = {
+                "catalog": row["right_catalog"], "schema_name": row["right_schema"],
+                "table_name": row["right_table"],
+            }
+            join_on = (
+                f"{qualified_name(left_table)}.{quote_ident(row['left_column'])} = "
+                f"{qualified_name(right_table)}.{quote_ident(row['right_column'])}"
+            )
+            links.append({
+                "id": row["id"], "source": row["source"],
+                "confidence": row["confidence"], "notes": row["notes"],
+                "target_field_id": row[remote + "_id"],
+                "target_application": row[remote + "_application"],
+                "target_catalog": row[remote + "_catalog"],
+                "target_schema": row[remote + "_schema"],
+                "target_table": row[remote + "_table"],
+                "target_column": row[remote + "_column"],
+                "condition": join_on,
+            })
+        return jsonify({"ok": True, "field": dict(field), "joins": links})
+    finally:
+        conn.close()
+
+
+@app.post("/api/catalogue/tables/<int:table_id>/application")
+def api_catalogue_table_application(table_id):
+    """Assign an explicit application name without changing Databricks identifiers."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("application_name"), str):
+        return jsonify({"ok": False, "error": "Application name must be text."}), 400
+    name = payload["application_name"].strip()
+    if len(name) > 120:
+        return jsonify({"ok": False, "error": "Application name must be 120 characters or fewer."}), 400
+    conn = db()
+    try:
+        cursor = conn.execute(
+            "UPDATE qb_tables SET application_name = ? WHERE id = ?",
+            (name or None, table_id),
+        )
+        if not cursor.rowcount:
+            return jsonify({"ok": False, "error": "Table not found."}), 404
+        conn.commit()
+        return jsonify({"ok": True, "application_name": name or None})
+    finally:
+        conn.close()
 
 
 @app.route("/builder")
