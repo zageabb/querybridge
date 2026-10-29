@@ -60,6 +60,7 @@ def init_db():
             schema_name TEXT,
             table_name TEXT NOT NULL,
             application_name TEXT,
+            description TEXT,
             table_type TEXT,
             is_temporary INTEGER DEFAULT 0,
             raw_source TEXT,
@@ -188,6 +189,8 @@ def init_db():
     table_columns = {row["name"] for row in conn.execute("PRAGMA table_info(qb_tables)").fetchall()}
     if "application_name" not in table_columns:
         conn.execute("ALTER TABLE qb_tables ADD COLUMN application_name TEXT")
+    if "description" not in table_columns:
+        conn.execute("ALTER TABLE qb_tables ADD COLUMN description TEXT")
 
     proposal_columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(qb_schema_proposals)").fetchall()
@@ -2075,6 +2078,8 @@ def schema_context_text(conn, include_relationships=True, max_chars=60000):
         lines.append("")
         lines.append(f"TABLE {qualified_name(table)}")
         lines.append(f"APPLICATION {table['application_name'] or 'Unassigned'} (user-assigned label, not catalog/schema)")
+        if table["description"]:
+            lines.append(f"TABLE DESCRIPTION {table['description']}")
         columns = conn.execute(
             """
             SELECT column_name, data_type, nullable, comment
@@ -2360,6 +2365,7 @@ def serialize_working_schema(conn):
                 "schema_name": table["schema_name"],
                 "table_name": table["table_name"],
                 "application_name": table["application_name"],
+                "description": table["description"],
                 "table_type": table["table_type"],
                 "is_temporary": table["is_temporary"],
                 "raw_source": table["raw_source"],
@@ -2468,14 +2474,15 @@ def restore_working_schema(conn, payload):
         cursor = conn.execute(
             """
             INSERT INTO qb_tables
-            (catalog, schema_name, table_name, application_name, table_type, is_temporary, raw_source, captured_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (catalog, schema_name, table_name, application_name, description, table_type, is_temporary, raw_source, captured_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 table.get("catalog"),
                 table.get("schema_name"),
                 table["table_name"],
                 table.get("application_name"),
+                table.get("description"),
                 table.get("table_type"),
                 int(bool(table.get("is_temporary", 0))),
                 table.get("raw_source"),
@@ -4621,7 +4628,7 @@ def api_catalogue_fields():
     searchable = " || ' ' || ".join(
         "COALESCE(" + field + ", '')"
         for field in (
-            "t.application_name", "t.catalog", "t.schema_name", "t.table_name",
+            "t.application_name", "t.catalog", "t.schema_name", "t.table_name", "t.description",
             "t.table_type", "c.column_name", "c.data_type", "c.comment",
         )
     )
