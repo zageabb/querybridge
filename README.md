@@ -260,26 +260,38 @@ The browser displays the active working schema, **not all saved schema snapshots
 
 ## Metadata Administration
 
-**Admin** provides a controlled editor for the *local SQLite metadata records* used by QueryBridge. It does not connect to Databricks or change live source tables.
+**Admin** opens directly from the navigation with **no separate password or sign-in**.
+It edits QueryBridge's locally captured SQLite metadata, not physical Databricks tables.
 
-The dashboard shows total tables, fields, stored joins, snapshots and knowledge entries, plus searchable application/catalog/schema/table records, selected table fields, recorded joins and the last 25 admin changes.
+The dashboard shows totals for tables, fields, stored joins, snapshots and knowledge,
+a searchable table browser, a field editor, join controls, and the last 25 recorded
+administrative changes.
 
-An authenticated administrator can:
-- create, rename and remove a captured table; edit its application label, catalog, schema and table type;
+You can:
+- add, rename and remove captured tables and update application, catalog, schema and type;
 - add, rename, retype, reorder, change nullability, describe or delete captured fields;
-- add a documented manual equality relationship between fields on different tables, or remove an existing relationship.
+- add a documented manual equality join between different tables, or remove a saved join.
 
-A deleted field or table cascades to its *locally stored* relationships. Deleting requires the exact name and a second confirmation. Previously saved schema snapshots are preserved (they are not silently updated); existing saved SQL and knowledge may require review after renaming/removing metadata. Admin activity is recorded in the SQLite admin audit table, including previous and new values for edited records (not a full reversible database backup). **Save a named schema snapshot before major edits.**
+Deleting a local table or field also removes its stored joins, so these actions
+require exact-name and second-step confirmation. Existing named snapshots are not
+modified; save a new snapshot before major editing. Existing saved SQL and knowledge
+may still refer to renamed or deleted metadata.
 
-### Enable the Admin console
+### Access and security
 
-Set these environment variables **on the server before starting QueryBridge**, using secure secret management:
+The Admin screen **inherits QueryBridge's existing network/application access**.
+Anyone who can reach QueryBridge can open Admin and modify local metadata. Do not
+expose QueryBridge directly to the public internet; restrict access at the existing
+UDA/Caddy proxy or your private network. The Admin API retains browser-session
+CSRF validation for write requests, with a token issued automatically when the
+Admin page is opened. **No admin password or configuration is required.**
 
-    export QUERYBRIDGE_ADMIN_PASSWORD='use-a-unique-long-password'
-    export QUERYBRIDGE_SESSION_SECRET="$(openssl rand -hex 32)"
-    # For HTTPS-only access through a trusted reverse proxy:
-    export QUERYBRIDGE_COOKIE_SECURE=1
+An optional QUERYBRIDGE_SESSION_SECRET environment variable provides a stable
+Flask session signing key across restarts and multiple workers; otherwise a strong
+random per-process key is generated. For HTTPS-only reverse-proxy deployments,
+QUERYBRIDGE_COOKIE_SECURE=1 is still recommended. Keep the backend shielded
+behind the trusted reverse proxy, with HTTPS at the browser.
 
-Both the admin password (at least 12 characters) and the signing secret (at least 32 characters) are required. **Without them the Admin console is disabled and its editing endpoints reject requests.** Sign in using the Admin tab; the administrator session expires after four hours. Use HTTPS, prevent direct access to the Flask backend from untrusted clients, and do not commit secrets to GitHub. For localhost over HTTP, leave the cookie secure flag unset; it must be 1 for an HTTPS-only deployment.
-
-This secures the **new Admin endpoints**. QueryBridge's pre-existing metadata capture and AI schema-change workflows retain their existing access controls; a broader application-wide role/permissions system is a separate security improvement.
+This removal applies to the separate Admin password only; it does not change
+QueryBridge's existing metadata capture or AI schema workflows or grant live
+Databricks access.
