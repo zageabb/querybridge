@@ -129,13 +129,13 @@ Update this file during the same development pass that changes implementation. W
 
 ### DEV-001 — Searchable schema explorer with field joins
 
-Status: 🔨 IN PROGRESS
+Status: ⏳ AWAITING ACCEPTANCE
 Priority: High
 Owner/Agent: ChatGPT
 Branch: feature/searchable-schema-catalogue
 Depends on: existing captured SQLite schema and relationship provenance
 Can run in parallel with: non-overlapping development outside app.py, templates, styling and tests
-Integration status: feature branch, PR/CI pending
+Integration status: PR #2, CI passed; merge to main pending
 
 Requirement:
 A user-facing table of application, catalog, schema, table and field metadata, searchable
@@ -157,8 +157,8 @@ Evidence:
 - Tests: tests/test_catalogue.py covers search, app filter, injection-like text,
   relationship direction/provenance, snapshot compatibility, legacy DB migration,
   write validation and reverse-proxy path.
-- CI: pending on feature PR.
-- Commit/PR: feature branch (see GitHub history), PR pending.
+- CI: QueryBridge Python Check (includes pytest) and UDA Compatibility passed on PR #2.
+- Commit/PR: feature/searchable-schema-catalogue, https://github.com/zageabb/querybridge/pull/2.
 - Merged to intended branch: not yet.
 - User/business acceptance: pending user test in UDA.
 
@@ -166,8 +166,8 @@ Completion criteria:
 - [x] Implementation exists on feature branch.
 - [x] Relevant files changed.
 - [x] Tests written.
-- [ ] Automated tests pass.
-- [ ] CI passes.
+- [x] Automated tests pass.
+- [x] CI passes.
 - [ ] PR reviewed and merged.
 - [ ] User verifies schema search and joins in deployed UI.
 
