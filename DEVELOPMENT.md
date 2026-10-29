@@ -356,12 +356,12 @@ Completion criteria:
 
 ### DEV-006 — Restore application awareness and no-change proposal handling
 
-Status: 🔨 IN PROGRESS
+Status: ⏳ AWAITING ACCEPTANCE
 Priority: High
 Owner/Agent: ChatGPT
 Branch: fix/ai-proposals-application-awareness
 Depends on: DEV-001 application label, AI Skills and local schema SQL analysis
-Integration status: feature branch, CI/PR pending
+Integration status: merged to main via PR #7, user UDA verification pending
 
 Observed:
 AI Skills proposal #8 ("No schema changes required") displayed "This proposal
@@ -387,14 +387,14 @@ Evidence:
   tests/test_ai_application_proposals.py, README.md, DEVELOPMENT.md.
 - Automated tests: metadata SQL application filters, no-op review, invalid
   proposal reasons, valid apply and LLM prompt application context.
-- CI: pending.
-- PR: pending.
-- Merged to main: no.
+- CI: QueryBridge Python Check and UDA Compatibility green for PR #7, head 848ad50cdf594a3245fcb7865a314e4dcd64c4e4.
+- PR: https://github.com/zageabb/querybridge/pull/7
+- Merged to main: yes, squash commit cacf6bf59a9d3cabbc8bc3e42690d46971702864.
 - User acceptance: pending deployed UDA verification.
 
 Completion criteria:
 - [x] Implementation and regression tests added.
-- [ ] Automated tests pass.
-- [ ] CI green before merge.
-- [ ] PR merged into main.
+- [x] Automated tests pass.
+- [x] CI green before merge.
+- [x] PR merged into main.
 - [ ] User verifies proposal #8 warning removed and app-specific review accurate.
