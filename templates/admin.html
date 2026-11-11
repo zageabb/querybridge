@@ -176,9 +176,47 @@
             <p id="sap-import-existing" class="muted"></p>
         </div>
     </section>
+
+    <section class="panel sap-import-panel" id="application-layers">
+      <div class="admin-section-header">
+        <div><h2>Application Data Layers</h2><p>Map source dictionaries to Databricks objects, then expose only the fields consumed by an application such as TAIJU. This is local metadata only.</p></div>
+      </div>
+      <div class="admin-warning">Source → Databricks → Application. Multiple source fields may feed a derived Databricks field. Mappings do not change source tables or run SQL.</div>
+      <h3>1. Create a Databricks or application object</h3>
+      <form id="layer-add-object" class="admin-layer-form">
+        <label>Layer <select name="kind" required><option value="databricks">Databricks</option><option value="application">Application consumption</option></select></label>
+        <label>Application name <input name="application_name" value="TAIJU" required maxlength="120"></label>
+        <label>Table / view name <input name="object_name" required maxlength="200"></label>
+        <label>Catalog (optional) <input name="catalog" maxlength="200"></label>
+        <label>Schema (optional) <input name="schema_name" maxlength="200"></label>
+        <button class="primary" type="submit">Add object</button>
+      </form>
+      <h3>2. Add only the exposed fields</h3>
+      <form id="layer-add-field" class="admin-layer-form">
+        <label>Layer object <select name="object_id" id="layer-object" required></select></label>
+        <label>Exposed field name <input name="field_name" required maxlength="200"></label>
+        <label>Type <input name="data_type" maxlength="200"></label>
+        <label>Expression / transformation <input name="expression" maxlength="2000" placeholder="Optional: documented SQL expression"></label>
+        <button class="primary" type="submit">Add selected field</button>
+      </form>
+      <h3>3. Link fields for lineage</h3>
+      <form id="layer-add-lineage" class="admin-layer-form">
+        <label>Target field <select id="layer-target" required></select></label>
+        <label>Source dictionary or Databricks field <select id="layer-source" required></select></label>
+        <button class="primary" type="submit">Connect fields</button>
+      </form>
+      <h3>Import a selected field list</h3>
+      <p class="muted">Supports additive JSON file imports using format <code>querybridge-application-layer</code>, version 1. Review the preview before importing.</p>
+      <input type="file" id="layer-import-file" accept=".json,application/json" aria-label="Application layer JSON file">
+      <button type="button" id="layer-import" class="secondary">Preview and import</button>
+      <p id="layer-status" class="muted" role="status" aria-live="polite"></p>
+      <h3>Configured layer objects</h3>
+      <div id="layer-objects"></div>
+    </section>
     <script>window.querybridgeAdminToken = {{ csrf_token | tojson }};</script>
     <script src="{{ url_for('static', filename='admin.js') }}"></script>
     <script src="{{ url_for('static', filename='sap-links.js') }}"></script>
+    <script src="{{ url_for('static', filename='application-layers.js') }}"></script>
 </main>
 </body>
 </html>
