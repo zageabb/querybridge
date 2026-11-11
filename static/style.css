@@ -1198,3 +1198,113 @@ body.schema-map-dark .schema-map-page button.secondary:hover {
   background:#263950;color:#fff;
 }
 body.schema-map-dark .schema-map-source pre { border-color:var(--qb-border); }
+
+
+/* Shared QueryBridge theme — saved light/dark preference mirrors Notes.
+   The existing light palette remains the default. */
+html[data-theme="dark"] {
+  color-scheme:dark;
+  --qb-bg:#11161d;
+  --qb-panel:#171e27;
+  --qb-panel-alt:#1d2631;
+  --qb-fg:#eef3f8;
+  --qb-muted:#9aa7b5;
+  --qb-border:#2b3745;
+  --qb-highlight:#203755;
+}
+html[data-theme="dark"] body {background:var(--qb-bg);color:var(--qb-fg);}
+.querybridge-theme-toggle {
+  flex-shrink:0;
+  background:#344054;
+  color:#fff;
+  border:1px solid #56647a;
+  border-radius:8px;
+  padding:8px 12px;
+  font-size:12px;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.querybridge-theme-toggle:hover {background:#475467;}
+html[data-theme="dark"] .panel,
+html[data-theme="dark"] .table-card,
+html[data-theme="dark"] .join-info,
+html[data-theme="dark"] .stats > div,
+html[data-theme="dark"] .snapshot-card,
+html[data-theme="dark"] .knowledge-card,
+html[data-theme="dark"] .schema-browser,
+html[data-theme="dark"] .sql-preview,
+html[data-theme="dark"] .selected-field,
+html[data-theme="dark"] .info-grid > div,
+html[data-theme="dark"] .schema-table,
+html[data-theme="dark"] .table-body,
+html[data-theme="dark"] .schema-map-list-item,
+html[data-theme="dark"] .schema-map-stats > div {
+  color:var(--qb-fg);
+  background:var(--qb-panel);
+  border-color:var(--qb-border);
+}
+html[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] .schema-table summary,
+html[data-theme="dark"] .sticky-title,
+html[data-theme="dark"] .drop-zone,
+html[data-theme="dark"] .empty-library {
+  background:var(--qb-panel-alt);
+  color:var(--qb-fg);
+  border-color:var(--qb-border);
+}
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {color:var(--qb-muted);}
+html[data-theme="dark"] .secondary,
+html[data-theme="dark"] .copy {
+  background:var(--qb-panel-alt);
+  color:var(--qb-fg);
+  border:1px solid var(--qb-border);
+}
+html[data-theme="dark"] .field,
+html[data-theme="dark"] .schema-table,
+html[data-theme="dark"] .schema-browser,
+html[data-theme="dark"] .sql-preview,
+html[data-theme="dark"] .table-body {border-color:var(--qb-border);}
+html[data-theme="dark"] .field:hover,
+html[data-theme="dark"] .schema-map-list-item:hover,
+html[data-theme="dark"] .drop-zone.over {background:var(--qb-highlight);}
+html[data-theme="dark"] .hero p,
+html[data-theme="dark"] .section-title p,
+html[data-theme="dark"] .panel p,
+html[data-theme="dark"] .canvas p,
+html[data-theme="dark"] .sql-preview p,
+html[data-theme="dark"] .muted,
+html[data-theme="dark"] .hint,
+html[data-theme="dark"] .inline-note,
+html[data-theme="dark"] .snapshot-main p,
+html[data-theme="dark"] .snapshot-stats,
+html[data-theme="dark"] .schema-map-legend,
+html[data-theme="dark"] .schema-map-help,
+html[data-theme="dark"] .schema-map-stats span,
+html[data-theme="dark"] .schema-map-page label {
+  color:var(--qb-muted);
+}
+html[data-theme="dark"] .snapshot-stats strong,
+html[data-theme="dark"] .selected-field b,
+html[data-theme="dark"] .status,
+html[data-theme="dark"] h1,
+html[data-theme="dark"] h2,
+html[data-theme="dark"] h3 {
+  color:var(--qb-fg);
+}
+html[data-theme="dark"] .status.good {background:#164f38;color:#b7f6cf;}
+html[data-theme="dark"] .status.todo {background:#624522;color:#ffe0a0;}
+html[data-theme="dark"] .flash.success {background:#164f38;color:#b7f6cf;}
+html[data-theme="dark"] .flash.error {background:#662b33;color:#ffd3d9;}
+html[data-theme="dark"] .dt-table th {background:var(--qb-panel-alt);color:var(--qb-fg);}
+html[data-theme="dark"] .dt-table td,
+html[data-theme="dark"] .dt-table th {border-color:var(--qb-border);}
+html[data-theme="dark"] .dt-table tr:hover,
+html[data-theme="dark"] .dt-table tr[aria-selected="true"] {background:var(--qb-highlight);}
+html[data-theme="dark"] .ai-panel {background:var(--qb-panel-alt);}
+html[data-theme="dark"] a {color:#86b7ff;}
+html[data-theme="dark"] nav a {color:#d0d5dd;}
+html[data-theme="dark"] nav a:hover,
+html[data-theme="dark"] nav a.active {color:#fff;}
