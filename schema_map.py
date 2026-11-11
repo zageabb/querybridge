@@ -243,17 +243,23 @@ def export_standalone_html():
     chosen = request.args.get("layer", "combined")
     if chosen not in ("source", "databricks", "application", "combined", "lineage"):
         return jsonify({"ok": False, "error": "Invalid layer."}), 400
+    from urllib.parse import urlencode
+    subset = as_bool(request.args.get("subset"))
     layers = {}
-    for name in ("source", "databricks", "application", "combined", "lineage"):
-        with current_app.test_request_context(
-            "/api/schema-map?layer=" + name + "&include_unjoined=1&include_cross_app=1"
-        ):
+    for name in (chosen,) if subset else ("source", "databricks", "application", "combined", "lineage"):
+        params = {"layer": name, "include_unjoined": "1", "include_cross_app": "1"}
+        if subset:
+            for key in ("application", "focus_table", "include_unjoined", "include_cross_app"):
+                if key in request.args:
+                    params[key] = request.args[key]
+        with current_app.test_request_context("/api/schema-map?" + urlencode(params)):
             result = schema_map_data()
         if isinstance(result, tuple):
             return result
         layers[name] = result.get_json()
     snapshot = {
         "layers": layers,
+        "scope": "selected view only" if subset else "all captured schema layers",
         "initial": {
             "layer": chosen,
             "application": request.args.get("application", ""),
