@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from flask import Blueprint, Response, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request, current_app
 from schema_graphviz import dot_graph, render_svg
+from schema_html_export import export_html
 
 bp = Blueprint("schema_map", __name__)
 _database = None
@@ -224,3 +225,20 @@ def diagram():
         ext = "svg" if output_format == "svg" else "dot"
         response.headers["Content-Disposition"] = f'attachment; filename="querybridge-schema.{ext}"'
     return response
+
+
+@bp.get("/api/schema-map/export-html")
+def export_standalone_html():
+    """Export the full current working schema as an offline interactive snapshot."""
+    # Build the unfiltered full graph; the exported page contains its own filters.
+    with current_app.test_request_context("/api/schema-map?include_unjoined=1"):
+        response = schema_map_data()
+    if isinstance(response, tuple):
+        return response
+    payload = response.get_json()
+    html_content = export_html(payload)
+    result = Response(html_content, mimetype="text/html")
+    result.headers["Content-Disposition"] = 'attachment; filename="querybridge-schema-map.html"'
+    result.headers["X-Content-Type-Options"] = "nosniff"
+    result.headers["Cache-Control"] = "no-store"
+    return result

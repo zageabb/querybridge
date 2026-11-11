@@ -32,6 +32,7 @@
     </div>
     <div class="schema-map-actions">
       <button id="map-copy" class="secondary small" type="button">Copy Mermaid</button>
+      <a class="secondary small" href="{{ url_for('schema_map.export_standalone_html') }}" download="querybridge-schema-map.html">Export interactive HTML</a>
       <button id="map-export-svg" class="secondary small" type="button">Export SVG</button>
       <button id="map-export-dot" class="secondary small" type="button">Export .dot</button>
       <button id="map-export" class="secondary small" type="button">Export .mmd</button>
