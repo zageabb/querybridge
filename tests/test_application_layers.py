@@ -30,15 +30,15 @@ def test_layers_preserve_source_tables_and_connect_lineage(tmp_path):
         );
         CREATE TABLE qb_columns (
             id INTEGER PRIMARY KEY, table_id INTEGER REFERENCES qb_tables(id),
-            column_name TEXT
+            column_name TEXT, ordinal_position INTEGER
         );
         CREATE TABLE qb_admin_audit (
             action TEXT, entity_type TEXT, entity_id INTEGER,
             before_json TEXT, after_json TEXT, created_at TEXT
         );
         INSERT INTO qb_tables(id,table_name,application_name) VALUES (1,'EKKO','SAP S/4HANA');
-        INSERT INTO qb_columns VALUES (1,1,'EBELN');
-        INSERT INTO qb_columns VALUES (2,1,'BUKRS');
+        INSERT INTO qb_columns(id,table_id,column_name) VALUES (1,1,'EBELN');
+        INSERT INTO qb_columns(id,table_id,column_name) VALUES (2,1,'BUKRS');
     """)
     connection.commit()
     connection.close()
