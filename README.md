@@ -665,3 +665,28 @@ for a lineage mapping. Unmapped source fields are never included in derived
 tables. Focus, field highlighting, SVG/DOT and Mermaid follow the selected
 schema layer. Even the derived-layer Overview selection deliberately displays
 field rows to avoid collapsing the important links into table-only lines.
+
+
+## Field descriptions for source, Databricks and application layers
+
+Every source dictionary field retains its `qb_columns.comment` description.
+The Databricks and application layer fields now have a separate
+`qb_layer_fields.description` column, independent from their SQL
+`expression`. Existing layer records are migrated in place without losing
+any mappings. Edit source or layer descriptions under **Admin → Application
+Data Layers → Edit field description** (or source descriptions through the
+existing field administration editor). Application-specific wording does not
+overwrite the original source or Databricks description.
+
+Blank layer descriptions inherit the upstream description only when the
+recorded lineage yields exactly one distinct non-empty upstream description.
+When multiple upstream descriptions disagree the resolved value is left blank
+until an explicit local description is supplied. Clearing a local description
+restores inheritance. Imports accept a `description` string for every field
+and fill blank existing field descriptions without overwriting authored ones.
+
+Schema Explorer displays the resolved description in a dedicated column.
+Schema Map detailed field rows expose descriptions as hover tooltips and offer
+a **Show field descriptions** checkbox for inline text in Graphviz SVG/DOT
+exports. The toggle applies to source and derived layers; plain Source mode
+retains its existing default presentation.

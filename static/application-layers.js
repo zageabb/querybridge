@@ -8,6 +8,9 @@
   const sourceSelect = document.getElementById('layer-source');
   const targetSelect = document.getElementById('layer-target');
   const objectSelect = document.getElementById('layer-object');
+  const descField = document.getElementById('layer-description-field');
+  const descText = document.getElementById('layer-description-text');
+  const descOrigin = document.getElementById('layer-description-origin');
   let state = {objects: [], fields: [], lineage: [], sources: []};
 
   const option = (id, label) => {
@@ -33,6 +36,13 @@
     const response = await fetch('admin/api/layers');
     if (!response.ok) throw Error('Could not load application layers');
     state = await response.json();
+    const previousDescriptionSelection = descField.value;
+    replaceOptions(descField, [
+      ...state.sources.map(f => ['source:' + f.id, 'SOURCE / ' + (f.application_name || 'Unassigned') + ' / ' + f.table_name + '.' + f.column_name]),
+      ...state.fields.map(f => ['layer:' + f.id, f.kind.toUpperCase() + ' / ' + f.application_name + ' / ' + f.object_name + '.' + f.field_name])
+    ], 'Choose a field');
+    descField.value = previousDescriptionSelection;
+    updateDescription();
     replaceOptions(objectSelect, state.objects.map(o => [o.id,
       o.application_name + ' / ' + o.kind + ' / ' + o.object_name]), 'Choose layer object');
     replaceOptions(targetSelect, state.fields.map(f => [f.id,
@@ -80,10 +90,35 @@
       objectsBox.append(div);
     }
   };
-  const run = async (endpoint, data) => {
+  const updateDescription = () => {
+    const [kind, rawId] = descField.value.split(':');
+    const field = kind === 'source'
+      ? state.sources.find(f => f.id === Number(rawId))
+      : state.fields.find(f => f.id === Number(rawId));
+    descText.disabled = !field;
+    descText.value = field ? (kind === 'source' ? field.description || '' : field.description || '') : '';
+    descOrigin.textContent = !field ? '' : (kind === 'source'
+      ? 'Source dictionary description'
+      : field.description
+        ? 'Explicit description for this layer'
+        : field.description_source === 'ambiguous'
+          ? 'Multiple upstream descriptions disagree. Enter your own description.'
+          : field.description_source === 'inherited'
+            ? 'Inherited: ' + field.resolved_description
+            : 'No description available upstream.');
+  };
+  descField.addEventListener('change', updateDescription);
+  document.getElementById('layer-edit-description').addEventListener('submit', async e => {
+    e.preventDefault();
+    const [kind, id] = descField.value.split(':');
+    if (!id) { status.textContent = 'Choose a field to edit'; return; }
+    await run('admin/api/layers/' + (kind === 'source' ? 'source-fields' : 'fields') +
+      '/' + id + '/description', {description:descText.value}, 'PATCH');
+  });
+  const run = async (endpoint, data, method='POST') => {
     try {
       status.textContent = 'Saving local metadata…';
-      await api(endpoint, data);
+      await api(endpoint, data, method);
       await refresh();
       status.textContent = 'Saved. Source system tables are unchanged.';
     } catch (err) {

@@ -7,7 +7,7 @@ on:
 
 jobs:
   python-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,7 +22,12 @@ jobs:
           node --check static/admin.js
           node --check static/sap-links.js
       - name: Graphviz runtime
-        run: command -v dot || (sudo apt-get update -qq && sudo apt-get install -y graphviz)
+        run: |
+          if command -v dot; then dot -V; else
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends graphviz
+            dot -V
+          fi
       - name: Schema Map JavaScript checks
         run: |
           node --check static/schema-diagram.js

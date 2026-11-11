@@ -167,3 +167,43 @@ def test_graphviz_svg_rendering_and_export(client):
         "format": "dot", "download": "1",
     })
     assert 'querybridge-schema.dot' in dot.headers["Content-Disposition"]
+
+
+def test_overview_and_detail_modes_apply_to_all_four_layers(client):
+    browser, _, _ = client
+    from application_layers import ensure_schema
+    conn = qb.db()
+    ensure_schema(conn)
+    conn.execute(
+        """INSERT INTO qb_layer_objects
+           (id,kind,application_name,object_name,catalog,schema_name,created_at)
+           VALUES (1001,'databricks','TAIJU','orders_view','edp','scm','2026-11-11')"""
+    )
+    conn.execute(
+        """INSERT INTO qb_layer_objects
+           (id,kind,application_name,object_name,created_at)
+           VALUES (1002,'application','TAIJU','orders','2026-11-11')"""
+    )
+    conn.execute(
+        """INSERT INTO qb_layer_fields(id,object_id,field_name,ordinal_position)
+           VALUES (1001,1001,'po_number',1),(1002,1002,'po_number',1)"""
+    )
+    conn.execute(
+        """INSERT INTO qb_layer_lineage(target_field_id,upstream_field_id)
+           VALUES (1002,1001)"""
+    )
+    conn.commit()
+    conn.close()
+    for layer in ('source','databricks','application','lineage'):
+        for mode in ('overview','detail'):
+            response = browser.get('/api/schema-map/diagram',query_string={
+                'layer':layer,'mode':mode,'format':'dot','include_unjoined':'1',
+            })
+            assert response.status_code == 200, (layer,mode,response.get_data(as_text=True))
+            dot = response.get_data(as_text=True)
+            if mode == 'overview':
+                assert 'PORT="f' not in dot, layer
+            else:
+                assert 'PORT="f' in dot, layer
+            if layer == 'databricks':
+                assert 'edp.scm.orders_view' in dot

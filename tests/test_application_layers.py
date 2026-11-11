@@ -30,7 +30,7 @@ def test_layers_preserve_source_tables_and_connect_lineage(tmp_path):
         );
         CREATE TABLE qb_columns (
             id INTEGER PRIMARY KEY, table_id INTEGER REFERENCES qb_tables(id),
-            column_name TEXT, ordinal_position INTEGER
+            column_name TEXT, ordinal_position INTEGER, comment TEXT
         );
         CREATE TABLE qb_admin_audit (
             action TEXT, entity_type TEXT, entity_id INTEGER,

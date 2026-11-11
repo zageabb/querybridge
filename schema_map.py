@@ -164,7 +164,7 @@ def schema_map_data():
             ).fetchall()
             by_table = {t["id"]: t for t in visible_tables}
             for field in fields:
-                by_table[field["table_id"]]["fields"].append(dict(field))
+                by_table[field["table_id"]]["fields"].append({**dict(field), "description":field["comment"],"description_source":"explicit" if field["comment"] else "none"})
 
         return jsonify({
             "ok": True,
@@ -219,7 +219,8 @@ def diagram():
     if highlighted is not None and highlighted not in field_ids:
         return jsonify({"ok": False, "error": "Selected field is outside the diagram."}), 400
     effective_mode = "detail" if payload.get("layer") in ("databricks", "application", "lineage") else mode
-    source = dot_graph(payload, mode=effective_mode, highlight_field=highlighted)
+    source = dot_graph(payload, mode=effective_mode, highlight_field=highlighted,
+                       show_descriptions=as_bool(request.args.get("show_descriptions")))
     if output_format == "dot":
         response = Response(source, mimetype="text/vnd.graphviz")
     else:
