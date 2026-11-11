@@ -2,9 +2,9 @@
 import sqlite3
 
 import pytest
-from flask import Flask
+from flask import Blueprint, Flask, jsonify, request
 
-from admin_console import create_admin_blueprint
+from data_tables import install
 
 
 @pytest.fixture
@@ -44,7 +44,14 @@ def client(tmp_path):
 
     app = Flask(__name__)
     app.secret_key = "test-secret"
-    app.register_blueprint(create_admin_blueprint(db, lambda: "2026-11-11T00:00:00Z"))
+    bp = Blueprint("admin", __name__, url_prefix="/admin")
+    install(bp, db, lambda: "2026-11-11T00:00:00Z", "qb_admin_csrf")
+    @bp.before_request
+    def test_csrf_guard():
+        if request.method in ("POST", "PATCH", "DELETE"):
+            if request.headers.get("X-CSRF-Token") != request.cookies.get("qb_admin_csrf"):
+                return jsonify({"ok":False,"error":"CSRF mismatch"}),403
+    app.register_blueprint(bp)
     with app.test_client() as browser:
         page = browser.get("/admin/data-tables")
         assert page.status_code == 200
