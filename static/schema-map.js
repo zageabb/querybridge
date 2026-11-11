@@ -206,9 +206,19 @@
   async function renderGraph(revision) {
     if (!state.graph) return;
     const interactive=canvasRenderer.value==="interactive";
+    // Switch the two canvases as a unit. The stylesheet explicitly honours
+    // [hidden] even where iframe/img elements have display:block rules.
     interactiveFrame.hidden=!interactive;
     el("map-diagram").hidden=interactive;
     el("map-stage").classList.toggle("is-interactive",interactive);
+    if(!interactive){
+      // The Graphviz image is the original view; keep the iframe out of layout.
+      interactiveFrame.setAttribute("aria-hidden","true");
+      el("map-diagram").removeAttribute("aria-hidden");
+    }else{
+      interactiveFrame.removeAttribute("aria-hidden");
+      el("map-diagram").setAttribute("aria-hidden","true");
+    }
     el("map-zoom-out").disabled=interactive;
     el("map-zoom-in").disabled=interactive;
     el("map-zoom-reset").disabled=interactive;
