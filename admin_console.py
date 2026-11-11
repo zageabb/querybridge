@@ -26,6 +26,8 @@ FIELD_COLUMNS = ("column_name", "data_type", "nullable", "comment", "ordinal_pos
 def create_admin_blueprint(db_func, now_func):
     global _db, _now
     _db, _now = db_func, now_func
+    from application_layers import install
+    install(bp, db_func, now_func)
     return bp
 
 
