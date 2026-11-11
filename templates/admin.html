@@ -201,8 +201,16 @@
         <label>Exposed field name <input name="field_name" required maxlength="200"></label>
         <label>Type <input name="data_type" maxlength="200"></label>
         <label>Expression / transformation <input name="expression" maxlength="2000" placeholder="Optional: documented SQL expression"></label>
+        <label>Field description <input name="description" maxlength="4000" placeholder="Optional: leave blank to inherit"></label>
         <button class="primary" type="submit">Add selected field</button>
       </form>
+      <h3>Edit field description</h3>
+      <form id="layer-edit-description" class="admin-layer-form">
+        <label>Field <select id="layer-description-field" required></select></label>
+        <label>Description <textarea id="layer-description-text" maxlength="4000" rows="2" placeholder="Clear to inherit upstream text for a layer field"></textarea></label>
+        <button class="primary" type="submit">Save description</button>
+      </form>
+      <p id="layer-description-origin" class="muted"></p>
       <h3>3. Link fields for lineage</h3>
       <form id="layer-add-lineage" class="admin-layer-form">
         <label>Target field <select id="layer-target" required></select></label>
