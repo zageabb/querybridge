@@ -282,6 +282,8 @@
     el("map-table-search").value = "";
     reload().catch(showError);
   });
+  el("map-export-html").addEventListener("click", () =>
+    download(endpoint("export-html", parameters(false, true, true)), "querybridge-schema-map.html"));
   el("map-export-svg").addEventListener("click", () =>
     download(endpoint("diagram", parameters(false, true, true)) + "&download=1", "querybridge-schema.svg"));
   el("map-export-dot").addEventListener("click", () => {
