@@ -28,6 +28,8 @@ def create_admin_blueprint(db_func, now_func):
     _db, _now = db_func, now_func
     from application_layers import install
     install(bp, db_func, now_func)
+    from data_tables import install as install_data_tables
+    install_data_tables(bp, db_func, now_func, ADMIN_CSRF_COOKIE)
     return bp
 
 

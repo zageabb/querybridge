@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <base href="{{ url_for('index') }}">
+  <script src="{{ url_for('static',filename='uda-path.js') }}"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>QueryBridge – Data Tables</title>
+  <link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}">
+  <style>
+    .dt-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,360px);gap:16px}
+    .dt-toolbar{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:16px}
+    .dt-toolbar label{display:grid;gap:4px}
+    .dt-toolbar input{min-width:200px}
+    .dt-scroll{overflow:auto;max-height:65vh;border:1px solid var(--border,#dde3ea);border-radius:8px}
+    .dt-table{width:100%;border-collapse:collapse;white-space:nowrap;font-size:13px}
+    .dt-table th,.dt-table td{padding:9px 12px;border-bottom:1px solid #e1e5e9;text-align:left;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+    .dt-table th{position:sticky;top:0;background:#f4f6f9;color:#263243;z-index:1}
+    .dt-table tr:hover{background:#edf4fa;cursor:pointer}
+    .dt-table tr[aria-selected=true]{background:#deebff}
+    .dt-row-details{display:grid;gap:10px;max-height:61vh;overflow:auto;margin:12px 0}
+    .dt-row-details label{display:grid;gap:4px;font-size:13px}
+    .dt-row-details input,.dt-row-details textarea{width:100%;box-sizing:border-box}
+    .dt-row-details textarea{min-height:70px}
+    .dt-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .dt-pager{display:flex;gap:10px;align-items:center;margin-top:12px}
+    .dt-warning{padding:12px;border-left:3px solid #d9a441;background:#fcfaf2;margin-bottom:14px}
+    @media(max-width:900px){.dt-layout{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header class="topbar">
+ <div><div class="brand">QueryBridge</div><div class="subtitle">Local SQLite record browser and editor</div></div>
+ <nav>
+   <a href="{{ url_for('index') }}">Metadata</a>
+   <a href="{{ url_for('catalogue') }}">Schema Explorer</a>
+   <a href="{{ url_for('schema_map.screen') }}">Schema Map</a>
+   <a href="{{ url_for('builder') }}">Query Builder</a>
+   <a href="{{ url_for('knowledge') }}">Knowledge</a>
+   <a href="{{ url_for('schema_chat') }}">Schema Chat</a>
+   <a href="{{ url_for('ai_skills') }}">AI Skills</a>
+   <a href="{{ url_for('llm_setup') }}">LLM Setup</a>
+   <a href="{{ url_for('admin.dashboard') }}">Admin</a>
+   <a class="active" href="{{ url_for('admin.data_tables_page') }}">Data Tables</a>
+ </nav>
+</header>
+<main class="admin-page">
+  <div class="admin-heading"><div><p class="catalogue-eyebrow">QUERYBRIDGE · LOCAL METADATA</p>
+    <h1>Data Tables</h1>
+    <p>Browse and edit records in QueryBridge's own SQLite metadata database.</p></div></div>
+  <div class="dt-warning"><strong>Local QueryBridge records only.</strong> This screen does not access or edit the contents of SAP, Procure or Databricks tables. Changes may affect Schema Explorer, diagrams, application mappings and saved queries. Back up <code>instance/querybridge.db</code> before bulk changes. Sensitive configuration, chat and audit tables are intentionally excluded.</div>
+  <section class="panel">
+    <div class="dt-toolbar">
+      <label>QueryBridge table<select id="dt-select" aria-label="Local QueryBridge table"></select></label>
+      <label>Search records<input id="dt-search" type="search" placeholder="Search text in visible columns"></label>
+      <button id="dt-refresh" class="secondary" type="button">Refresh</button>
+      <button id="dt-create" class="primary" type="button">+ New record</button>
+    </div>
+    <p id="dt-status" class="muted" role="status" aria-live="polite">Loading tables…</p>
+    <div class="dt-layout">
+      <div>
+        <div class="dt-scroll">
+          <table class="dt-table" aria-label="Local SQLite records">
+            <thead><tr id="dt-header"></tr></thead>
+            <tbody id="dt-rows"></tbody>
+          </table>
+        </div>
+        <div class="dt-pager">
+          <button id="dt-prev" class="secondary small" type="button">Previous</button>
+          <span id="dt-page"></span>
+          <button id="dt-next" class="secondary small" type="button">Next</button>
+        </div>
+      </div>
+      <section class="panel" aria-label="Record editor" style="padding:16px">
+        <h2 id="dt-title">Select a record</h2>
+        <p id="dt-description" class="muted">Choose a row to edit it or create a new record.</p>
+        <form id="dt-editor" hidden>
+          <div id="dt-fields" class="dt-row-details"></div>
+          <div class="dt-actions">
+            <button type="submit" class="primary">Save record</button>
+            <button type="button" id="dt-delete" class="secondary">Delete record</button>
+            <button type="button" id="dt-cancel" class="secondary">Cancel</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </section>
+</main>
+<script>window.querybridgeAdminToken = {{ csrf_token|tojson }};</script>
+<script src="{{ url_for('static',filename='data-tables.js') }}" defer></script>
+</body>
+</html>

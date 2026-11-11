@@ -612,3 +612,34 @@ Layer views do **not** discover, infer or verify Databricks transformations.
 They only display mappings recorded in Admin. An unmapped field has no
 fabricated source lineage. They do not change the SQL Query Builder's existing
 source-based semantics.
+
+
+## Data Tables: local SQLite record editor
+
+Use **Data Tables** in the top navigation to browse QueryBridge's own local
+metadata records. Select a `qb_*` table, search across its values, move
+through pages (50 records/page), select a row, edit fields, or create a record.
+Each save/delete requires confirmation. Record IDs are never editable.
+
+Only curated metadata tables are exposed:
+`qb_tables`, `qb_columns`, `qb_relationships`, `qb_knowledge`,
+`qb_layer_objects`, `qb_layer_fields`, `qb_layer_lineage`,
+`qb_schema_snapshots` and `qb_saved_queries` (when present). Chat history,
+LLM settings, audit history, raw imports, and unknown tables are intentionally
+excluded. Admin's existing network access policy and CSRF/origin guard apply.
+The editor is for local SQLite metadata **only**; it never accesses live
+Databricks, SAP, Procure or operational records.
+
+The editor uses database introspection for the selected table's fields, an
+allowlist for SQL identifiers, parameterised SQL for values, transaction-scoped
+operations, SQLite foreign-key enforcement, record-version comparison to avoid
+lost updates, and Admin audit entries containing before/after snapshots.
+Deletes are rejected when another SQLite record references the target, even
+if its FK is configured with cascading deletion. Search results are capped at
+50/page, and text inputs are limited in size.
+
+Back up `instance/querybridge.db` before substantial changes. Editing IDs,
+schema definitions or operational settings is deliberately outside the scope
+of this screen. Changes to local metadata may affect schema diagrams, SQL
+builder results or saved mappings. Existing source-dictionary table definitions
+are not modified by merely browsing records.
