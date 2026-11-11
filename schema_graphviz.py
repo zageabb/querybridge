@@ -27,7 +27,7 @@ def title(table):
     )
 
 
-def dot_graph(payload, mode="overview", highlight_field=None):
+def dot_graph(payload, mode="overview", highlight_field=None, show_descriptions=False):
     if mode not in ("overview", "detail"):
         raise ValueError("Diagram mode must be overview or detail.")
     tables = payload["tables"]
@@ -75,9 +75,13 @@ def dot_graph(payload, mode="overview", highlight_field=None):
                         for link in relationships
                     ) else "#ffffff"
                 )
+                description = (field.get("description") or field.get("comment") or "").strip()
+                tooltip = f' TOOLTIP="{safe_html(description, 500)}"' if description else ""
+                suffix = (f'<BR/><FONT POINT-SIZE="9" COLOR="#667085">'
+                          f'{safe_html(description, 110)}</FONT>') if show_descriptions and description else ""
                 rows.append(
-                    f'<TR><TD PORT="f{fid}" BGCOLOR="{color}" ALIGN="LEFT">'
-                    f'{safe_html(field["column_name"], 140)}</TD>'
+                    f'<TR><TD PORT="f{fid}" BGCOLOR="{color}" ALIGN="LEFT"{tooltip}>'
+                    f'{safe_html(field["column_name"], 140)}{suffix}</TD>'
                     f'<TD BGCOLOR="{color}" ALIGN="LEFT">'
                     f'<FONT POINT-SIZE="9" COLOR="#667085">'
                     f'{safe_html(field.get("data_type") or "—", 60)}'
