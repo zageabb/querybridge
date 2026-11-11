@@ -13,6 +13,24 @@
   const image = el("map-image");
   const empty = el("map-empty");
   const renderer = window.SchemaMapDiagram;
+  const canvasRenderer = el("map-renderer");
+  const interactiveFrame = el("map-interactive-frame");
+  const themeToggle = el("map-theme-toggle");
+  const themeKey = "querybridge.theme";
+  function readTheme(){try{return localStorage.getItem(themeKey)||"light"}catch(_){return "light"}}
+  let theme = readTheme();
+  function applyTheme(next){
+    theme=next==="dark"?"dark":"light";
+    document.documentElement.dataset.theme=theme;
+    document.body.classList.toggle("schema-map-dark",theme==="dark");
+    themeToggle.textContent=theme==="dark"?"☀ Light mode":"◐ Dark mode";
+    themeToggle.setAttribute("aria-pressed",String(theme==="dark"));
+    try{localStorage.setItem(themeKey,theme)}catch(_){}
+    if(!interactiveFrame.hidden&&interactiveFrame.contentWindow)
+      interactiveFrame.contentWindow.postMessage({type:"querybridge:set-theme",theme},location.origin);
+  }
+  applyTheme(theme);
+  themeToggle.addEventListener("click",()=>applyTheme(theme==="dark"?"light":"dark"));
   const state = {graph: null, scope: null, mermaid: "", zoom: 1, natural: 0, revision: 0, imageUrl: null};
 
   function elText(tag, text, className) {
@@ -163,6 +181,8 @@
     if (!joinedRoot.children.length) joinedRoot.append(elText("p", "No stored joins in the current view.", "muted"));
   }
   function showError(error) {
+    interactiveFrame.hidden=true;
+    el("map-diagram").hidden=false;
     status(error.message || "Could not render diagram.", true);
     empty.textContent = error.message || "Diagram unavailable.";
     empty.hidden = false;
@@ -185,6 +205,30 @@
   }
   async function renderGraph(revision) {
     if (!state.graph) return;
+    const interactive=canvasRenderer.value==="interactive";
+    interactiveFrame.hidden=!interactive;
+    el("map-diagram").hidden=interactive;
+    el("map-stage").classList.toggle("is-interactive",interactive);
+    el("map-zoom-out").disabled=interactive;
+    el("map-zoom-in").disabled=interactive;
+    el("map-zoom-reset").disabled=interactive;
+    if(interactive){
+      if(!state.graph.tables.length){
+        interactiveFrame.hidden=true;
+        el("map-diagram").hidden=false;
+        empty.hidden=false;
+        empty.textContent="No tables in this filter.";
+        return;
+      }
+      const args=parameters(false,true,true);
+      args.set("subset","1");
+      args.set("inline","1");
+      args.set("theme",theme);
+      const url=endpoint("export-html",args);
+      if(interactiveFrame.src!==url)interactiveFrame.src=url;
+      status("Interactive HTML · drag table headers to move; zoom and pan inside the canvas",false);
+      return;
+    }
     const parametersForRender = parameters(false, true, true);
     const url = endpoint("diagram", parametersForRender);
     status("Rendering Graphviz…", false);
@@ -275,6 +319,7 @@
   external.addEventListener("change", () => { focus.value = ""; reload().catch(showError); });
   field.addEventListener("change", () => renderGraph(++state.revision).catch(showError));
   el("map-table-search").addEventListener("input", () => state.graph && renderLists(state.graph));
+  canvasRenderer.addEventListener("change",()=>renderGraph(++state.revision).catch(showError));
   el("map-zoom-in").addEventListener("click", () => { state.zoom = Math.min(4, state.zoom * 1.25); applyZoom(); });
   el("map-zoom-out").addEventListener("click", () => { state.zoom = Math.max(0.08, state.zoom / 1.25); applyZoom(); });
   el("map-zoom-reset").addEventListener("click", fitZoom);
