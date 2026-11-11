@@ -714,3 +714,8 @@ notes, but not source business rows. Share it only with appropriate recipients.
 The live view and exported HTML show only documented field mappings; they
 never invent joins, a user-interface label, source availability or cardinality.
 The active layer and application filter are selected when the export opens.
+
+
+### Graphviz-quality links in standalone HTML
+
+The interactive HTML export now uses Graphviz's `dot -Tplain` algorithm at export time to determine table ranks and relationship-aware ordering. The output remains a **single standalone HTML5 file**: semantic HTML cards display fields and descriptions while an SVG overlay renders rounded orthogonal field-to-field connectors, with directional arrows for lineage. The file does **not** require Graphviz, JavaScript packages, a network connection or a server to view. Moving a table by dragging its header, expanding/collapsing a table or changing filters immediately recalculates its connectors in the browser; pan, zoom and field highlight still work. When Graphviz is missing during export, the viewer uses a fallback automatic layout.

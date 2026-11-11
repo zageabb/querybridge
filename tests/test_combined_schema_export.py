@@ -138,3 +138,50 @@ def test_current_view_export_is_explicitly_scoped(client):
     assert all(t["application_name"] == "TAIJU"
                for t in snap["layers"]["combined"]["tables"])
     assert b"Export current view HTML" in client.get("/schema-map").data
+
+
+def test_graphviz_offline_layout_positions_are_embedded(client):
+    from schema_html_export import graphviz_layout
+    graph = client.get("/api/schema-map?layer=combined").get_json()
+    positions = graphviz_layout(graph)
+    # When Graphviz is available, every visible table must have a position.
+    if not positions:
+        pytest.skip("Graphviz dot unavailable on this installation")
+    assert set(positions) == {str(table["id"]) for table in graph["tables"]}
+    assert all(len(coords) == 2 and all(isinstance(v, float) for v in coords)
+               for coords in positions.values())
+    html = client.get("/api/schema-map/export-html?subset=1&layer=combined").get_data(as_text=True)
+    payload = re.search(r'<script type="application/json" id="snapshot">(.*?)</script>', html, re.S)
+    assert payload
+    snapshot = json.loads(payload.group(1))
+    assert snapshot["layouts"]["combined"] == positions
+
+
+def test_offline_export_contains_interactive_graphviz_routing(client):
+    html = client.get("/api/schema-map/export-html?layer=combined").get_data(as_text=True)
+    assert 'function layoutNodes(' in html
+    assert 'function drawEdges(' in html
+    assert 'function routedPath(' in html
+    assert 'function bindTableDrag(' in html
+    assert 'function clearRoute(' in html
+    assert 'marker-end' in html
+    assert 'Field descriptions' in html
+    assert 'function highlight(' in html
+    assert 'mouse' not in html.lower() or 'wheel' in html
+    assert 'src="http' not in html
+
+
+def test_graphviz_layout_no_network_or_script_injection():
+    from schema_html_export import graphviz_layout
+    graph = {
+        "tables": [
+            {"id": 1, "table_name": '<script>alert(1)</script>', "fields": []},
+            {"id": 2, "table_name": "target", "fields": []},
+        ],
+        "relationships": [
+            {"left_table_id": 1, "right_table_id": 2, "relationship_type": "lineage"}
+        ],
+    }
+    positions = graphviz_layout(graph)
+    assert not positions or set(positions) == {"1", "2"}
+    # Graphviz only sees numeric local IDs; captured table names are never DOT input.
