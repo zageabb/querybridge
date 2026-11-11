@@ -223,6 +223,7 @@
       const args=parameters(false,true,true);
       args.set("subset","1");
       args.set("inline","1");
+      args.set("embedded","1");
       args.set("theme",theme);
       const url=endpoint("export-html",args);
       if(interactiveFrame.src!==url)interactiveFrame.src=url;
