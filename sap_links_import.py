@@ -109,7 +109,11 @@ def select_table(conn, name, application=APPLICATION):
         (name,),
     ).fetchall()
     if len(matches) == 1:
-        return matches[0]
+        existing = matches[0]
+        label = (existing["application_name"] or "").casefold()
+        if label and label != application.casefold():
+            raise ValueError(f"Table {name} belongs to another application: {existing['application_name']}")
+        return existing
     if not matches:
         return None
     labelled = [
