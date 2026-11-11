@@ -26,7 +26,7 @@ def test_layers_preserve_source_tables_and_connect_lineage(tmp_path):
     connection = sqlite3.connect(database)
     connection.executescript("""
         CREATE TABLE qb_tables (
-            id INTEGER PRIMARY KEY, table_name TEXT, application_name TEXT
+            id INTEGER PRIMARY KEY, table_name TEXT, application_name TEXT,\n            catalog TEXT, schema_name TEXT
         );
         CREATE TABLE qb_columns (
             id INTEGER PRIMARY KEY, table_id INTEGER REFERENCES qb_tables(id),
@@ -36,7 +36,7 @@ def test_layers_preserve_source_tables_and_connect_lineage(tmp_path):
             action TEXT, entity_type TEXT, entity_id INTEGER,
             before_json TEXT, after_json TEXT, created_at TEXT
         );
-        INSERT INTO qb_tables VALUES (1,'EKKO','SAP S/4HANA');
+        INSERT INTO qb_tables(id,table_name,application_name) VALUES (1,'EKKO','SAP S/4HANA');
         INSERT INTO qb_columns VALUES (1,1,'EBELN');
         INSERT INTO qb_columns VALUES (2,1,'BUKRS');
     """)
