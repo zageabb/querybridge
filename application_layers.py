@@ -375,6 +375,13 @@ def install(bp, db, now):
                                    (object_id,field_name,data_type,expression,description,ordinal_position)
                                    VALUES (?,?,?,?,?,?)""",(oid,field,dtype or None,expression,description,position),
                             )
+                            if description:
+                                conn.execute(
+                                    """UPDATE qb_layer_fields SET description=?
+                                       WHERE object_id=? AND lower(field_name)=lower(?)
+                                         AND (description IS NULL OR description='')""",
+                                    (description,oid,field),
+                                )
                     audit(conn,"import_application_layer","layer_object",None,
                           {"objects":len(planned),"fields":sum(len(x[5]) for x in planned)})
                 return jsonify({"ok":True,"objects":len(planned),
