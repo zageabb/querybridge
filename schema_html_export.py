@@ -96,7 +96,7 @@ button{cursor:pointer}button:hover{background:var(--card-head)}.check{flex-direc
 <label class="check"><input type="checkbox" id="descriptions">Field descriptions</label>
 <label class="check"><input type="checkbox" id="cross" checked>Cross-application links</label>
 <label>Find table<input id="search" placeholder="Table name…"></label>
-<button id="fit">Fit / reset</button><button id="plus">Zoom +</button><button id="minus">Zoom −</button>
+<button id="fit">Fit / reset</button><button id="reset-positions" type="button">Reset positions</button><button id="plus">Zoom +</button><button id="minus">Zoom −</button>
 <span id="stats"></span></div>
 <div id="viewport"><div id="world"><svg id="lines"></svg><div id="nodes"></div></div>
 <div id="help">Drag to pan · Mouse wheel to zoom · Click any field to highlight linked fields · No network required</div></div>
@@ -174,6 +174,20 @@ function highlight(id){
  document.querySelectorAll(".edges").forEach(e=>e.classList.toggle("active",match.some(l=>String(l.id)===e.dataset.id)));
 }
 const manualPositions=new Map();
+const positionsKey="querybridge.schema.map.positions.v1";
+try {
+ const saved=JSON.parse(localStorage.getItem(positionsKey)||"{}");
+ for(const [key,pos] of Object.entries(saved)){
+   if(pos&&Number.isFinite(pos.x)&&Number.isFinite(pos.y)&&pos.x>=0&&pos.y>=0)
+     manualPositions.set(key,{x:pos.x,y:pos.y});
+ }
+} catch(_) {}
+function persistPositions(){
+ try{localStorage.setItem(positionsKey,JSON.stringify(Object.fromEntries(manualPositions)))}catch(_){}
+}
+$("reset-positions").onclick=()=>{for(const key of [...manualPositions.keys()])
+ if(key.startsWith($("layer").value+":"))manualPositions.delete(key);
+ persistPositions();draw();fit();};
 const CARD_WIDTH=245;
 function layoutNodes(items,detail) {
  const layer=$("layer").value, graphviz=snapshot.layouts?.[layer]||{};
@@ -322,7 +336,7 @@ function bindTableDrag(head,node,position,tableId){
    manualPositions.set($("layer").value+":"+tableId,{x:position.x,y:position.y});
    drawEdges();
  });
- const stop=()=>{if(drag?.moved)suppress=true;drag=null};
+ const stop=()=>{if(drag?.moved){suppress=true;persistPositions()}drag=null};
  head.addEventListener("pointerup",stop);head.addEventListener("pointercancel",stop);
  head.addEventListener("click",e=>{
    if(suppress){suppress=false;e.preventDefault();return}
