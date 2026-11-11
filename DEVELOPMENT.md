@@ -502,3 +502,51 @@ Completion criteria:
 - [x] CI green.
 - [x] PR merged.
 - [ ] Real SAP dictionary export/Ubuntu deployment verified.
+
+
+### DEV-016 — P0 combined Databricks + Application UI schema and offline HTML
+
+Status: IMPLEMENTED ON BRANCH — CI AND USER ACCEPTANCE PENDING
+Priority: P0
+Owner/Agent: ChatGPT
+Branch: feature/p0-combined-ui-schema-export
+Depends on: DEV-005, merged source→EDP→application layer features PRs #11–14
+Integration status: PR #17 open; **not merged**; old export PR #10 overlaps and must not be merged independently
+
+Requirement:
+Show Databricks/EDP selected technical fields side by side with consuming
+application fields, joined by explicitly recorded directional field mappings.
+Supply that combined view in both Schema Map and a single offline interactive
+HTML export with filter, pan/zoom, expand/collapse and field highlighting.
+
+Implementation:
+- New `combined` layer graph projection reuses explicit layer lineage metadata;
+  includes recorded Databricks→application field mappings, excludes source dictionaries
+  from this focused two-layer view and maintains source lineage in End-to-end.
+- Schema Map layer selector, API and Graphviz/Mermaid mapping directions.
+- Offline HTML snapshot contains Source, Databricks, Application, Combined and
+  End-to-end graphs; interactive layer/application/focus/unjoined/cross-app
+  filters, search, zoom/pan and exact field-endpoint mapping links.
+- Read-only export with escaped JSON; does not access source business records.
+- Tests for different-named UI fields, multi-source and fan-out lineage,
+  Graphviz field ports and portable HTML bundle.
+
+Evidence:
+- PR: https://github.com/zageabb/querybridge/pull/17
+- Issue: https://github.com/zageabb/querybridge/issues/16
+- Tests added: tests/test_combined_schema_export.py
+- CI: **No checks or workflow runs reported at review time**. No green-CI claim.
+- User/business acceptance: pending deployment.
+
+Completion criteria:
+- [x] Implementation committed to feature branch.
+- [x] Regression tests written.
+- [ ] Python and Node tests verified passing.
+- [ ] UDA compatibility CI verified green.
+- [ ] PR merged to main.
+- [ ] User confirms combined map and offline export against real TAIJU mappings.
+
+Notes:
+The application metadata layer holds consumed application fields; actual UI
+screen/control display labels require explicitly captured UI metadata and
+must not be inferred from technical field names.
