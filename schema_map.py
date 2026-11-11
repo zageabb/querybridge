@@ -34,7 +34,7 @@ def as_bool(value):
 def schema_map_data():
     application = (request.args.get("application") or "").strip()
     layer = (request.args.get("layer") or "source").strip()
-    if layer not in ("source","databricks","application","lineage"):
+    if layer not in ("source","databricks","application","lineage","combined"):
         return jsonify({"ok":False,"error":"Invalid layer."}),400
     include_unjoined = as_bool(request.args.get("include_unjoined"))
     include_cross_app = as_bool(request.args.get("include_cross_app"))
@@ -218,7 +218,7 @@ def diagram():
     field_ids = {c["id"] for t in payload["tables"] for c in t["fields"]}
     if highlighted is not None and highlighted not in field_ids:
         return jsonify({"ok": False, "error": "Selected field is outside the diagram."}), 400
-    effective_mode = "detail" if payload.get("layer") in ("databricks", "application", "lineage") else mode
+    effective_mode = "detail" if payload.get("layer") in ("databricks", "application", "lineage", "combined") else mode
     source = dot_graph(payload, mode=effective_mode, highlight_field=highlighted)
     if output_format == "dot":
         response = Response(source, mimetype="text/vnd.graphviz")
