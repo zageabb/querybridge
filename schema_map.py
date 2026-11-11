@@ -51,7 +51,7 @@ def schema_map_data():
         if layer != "source":
             from layer_graph import graph
             try:
-                return jsonify(graph(conn,layer,application,focus_id,include_unjoined))
+                return jsonify(graph(conn,layer,application,focus_id,include_unjoined,include_cross_app))
             except ValueError as exc:
                 return jsonify({"ok":False,"error":str(exc)}),400
         all_tables = [
@@ -218,7 +218,8 @@ def diagram():
     field_ids = {c["id"] for t in payload["tables"] for c in t["fields"]}
     if highlighted is not None and highlighted not in field_ids:
         return jsonify({"ok": False, "error": "Selected field is outside the diagram."}), 400
-    source = dot_graph(payload, mode=mode, highlight_field=highlighted)
+    effective_mode = "detail" if payload.get("layer") in ("databricks", "application", "lineage") else mode
+    source = dot_graph(payload, mode=effective_mode, highlight_field=highlighted)
     if output_format == "dot":
         response = Response(source, mimetype="text/vnd.graphviz")
     else:
