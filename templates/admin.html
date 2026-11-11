@@ -122,7 +122,7 @@
     <section class="panel sap-import-panel" id="sap-ddic-import">
         <div class="admin-section-header">
             <div>
-                <h2>SAP S/4HANA full dictionary import</h2>
+                <h2>Full Dictionary Import</h2>
                 <p>Bulk load table names, field names, data types and descriptions into QueryBridge's working metadata.</p>
             </div>
             <a class="secondary small" href="{{ url_for('admin.sap_ddic_query') }}" download="export_sap_ddic_hana.sql">Download SAP export SQL</a>
@@ -137,6 +137,9 @@
         </div>
         <p><strong>Preview (Ubuntu CLI):</strong></p>
         <pre>python scripts/import_sap_ddic.py sap_ddic.csv --db instance/querybridge.db</pre>
+        <p><strong>Other source applications:</strong> Use the same CSV headers (TABLE_NAME, FIELD_NAME, optional DATA_TYPE, descriptions, POSITION) and specify an application. The SAP export SQL above remains SAP-specific.</p>
+        <pre>python scripts/import_sap_ddic.py source_dictionary.csv --application "Procure" --db instance/querybridge.db</pre>
+        <pre>python scripts/import_sap_ddic.py source_dictionary.csv --application "Procure" --db instance/querybridge.db --apply</pre>
         <p><strong>Apply after reviewing:</strong></p>
         <pre>python scripts/import_sap_ddic.py sap_ddic.csv --db instance/querybridge.db --apply</pre>
         <p class="muted">Use this full CSV importer for large metadata exports. Use the separate JSON import below for reviewed field-to-field SAP relationships.</p>
@@ -144,19 +147,19 @@
     <section class="panel sap-import-panel" id="sap-link-import">
         <div class="admin-section-header">
             <div>
-                <h2>SAP S/4HANA relationship import</h2>
-                <p>Load a JSON list of SAP tables, fields and relationships into the current local subset.</p>
+                <h2>Relationship Import</h2>
+                <p>Import reviewed relationships for SAP or another application. Generic files use format querybridge-links version 1 and an application name.</p>
             </div>
             <a href="{{ url_for('admin.sap_links_template') }}" download="sap_s4hana_links_template.json" class="secondary small">Download starter JSON</a>
         </div>
         <div class="admin-warning">
             <strong>Additive and local only.</strong>
             The preview will identify missing tables, fields and joins. New tables will be
-            marked <strong>SAP S/4HANA</strong> and will have no Catalog or Schema assigned.
+            marked with the selected source application and will have no Catalog or Schema assigned.
             Existing metadata is left unchanged. No schema snapshot is saved or overwritten.
-            Review the sample SAP joins before importing, including any client (MANDT) conditions.
+            Review every imported join. The SAP starter file uses the legacy SAP format; see README for a generic example.
         </div>
-        <label>Choose SAP relationships JSON file
+        <label>Choose relationship JSON file
             <input type="file" id="sap-import-file" accept=".json,application/json">
         </label>
         <div class="admin-actions">
