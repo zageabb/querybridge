@@ -30,6 +30,7 @@ def ensure_schema(conn):
         field_name TEXT NOT NULL,
         data_type TEXT,
         expression TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
         ordinal_position INTEGER NOT NULL DEFAULT 0,
         UNIQUE(object_id, field_name)
     );
@@ -46,6 +47,50 @@ def ensure_schema(conn):
     CREATE INDEX IF NOT EXISTS idx_qb_layer_lineage_source ON qb_layer_lineage(source_column_id);
     CREATE INDEX IF NOT EXISTS idx_qb_layer_lineage_upstream ON qb_layer_lineage(upstream_field_id);
     """)
+    if "description" not in {r[1] for r in conn.execute("PRAGMA table_info(qb_layer_fields)")}:
+        conn.execute("ALTER TABLE qb_layer_fields ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+
+
+def resolved_descriptions(conn):
+    """Return explicit or unambiguous inherited description for each layer field.
+
+    Multiple parents with conflicting descriptions are intentionally left
+    unresolved. Never overwrite local wording with upstream metadata.
+    """
+    fields = {r["id"]: dict(r) for r in conn.execute(
+        "SELECT id,description FROM qb_layer_fields"
+    )}
+    upstream = {}
+    for record in conn.execute("""
+        SELECT l.target_field_id, l.upstream_field_id, c.comment AS source_comment
+        FROM qb_layer_lineage l
+        LEFT JOIN qb_columns c ON c.id=l.source_column_id
+    """):
+        upstream.setdefault(record["target_field_id"], []).append(
+            (record["upstream_field_id"], record["source_comment"])
+        )
+    cache = {}
+    def resolve(fid, visited):
+        if fid in cache:
+            return cache[fid]
+        if fid not in fields or fid in visited:
+            return ("", "none")
+        explicit = (fields[fid]["description"] or "").strip()
+        if explicit:
+            cache[fid] = (explicit, "explicit")
+            return cache[fid]
+        inherited = set()
+        for parent_id, source_comment in upstream.get(fid, []):
+            if parent_id is None:
+                desc = (source_comment or "").strip()
+            else:
+                desc, _ = resolve(parent_id, visited | {fid})
+            if desc:
+                inherited.add(desc)
+        result = (next(iter(inherited)), "inherited") if len(inherited) == 1 else ("", "ambiguous" if len(inherited) > 1 else "none")
+        cache[fid] = result
+        return result
+    return {fid: resolve(fid, set()) for fid in fields}
 
 
 
@@ -86,6 +131,9 @@ def install(bp, db, now):
                    FROM qb_layer_fields f JOIN qb_layer_objects o ON o.id=f.object_id
                    ORDER BY f.object_id,f.ordinal_position,f.id"""
             )]
+            inherited = resolved_descriptions(conn)
+            for field in fields:
+                field["resolved_description"], field["description_source"] = inherited[field["id"]]
             lineage = [dict(row) for row in conn.execute(
                 """SELECT l.*,c.column_name AS source_field,t.table_name AS source_table,
                           t.application_name AS source_application,
@@ -98,7 +146,7 @@ def install(bp, db, now):
                    ORDER BY l.id"""
             )]
             sources = [dict(row) for row in conn.execute(
-                """SELECT c.id,c.column_name,t.table_name,t.application_name,t.catalog,t.schema_name
+                """SELECT c.id,c.column_name,c.comment AS description,t.table_name,t.application_name,t.catalog,t.schema_name
                    FROM qb_columns c JOIN qb_tables t ON t.id=c.table_id
                    ORDER BY t.application_name,t.table_name,c.ordinal_position"""
             )]
@@ -144,6 +192,7 @@ def install(bp, db, now):
             name = string(payload.get("field_name"),"Field name",200,True)
             dtype = string(payload.get("data_type"),"Type",200)
             expression = string(payload.get("expression"),"Transformation",2000)
+            description = string(payload.get("description"),"Description",4000)
             conn = db()
             try:
                 ensure_schema(conn)
@@ -157,8 +206,8 @@ def install(bp, db, now):
                     ).fetchone()[0]
                     cur = conn.execute(
                         """INSERT INTO qb_layer_fields
-                           (object_id,field_name,data_type,expression,ordinal_position)
-                           VALUES (?,?,?,?,?)""",(object_id,name,dtype or None,expression,ordinal),
+                           (object_id,field_name,data_type,expression,description,ordinal_position)
+                           VALUES (?,?,?,?,?,?)""",(object_id,name,dtype or None,expression,description,ordinal),
                     )
                     audit(conn,"create_layer_field","layer_field",cur.lastrowid,payload)
                 return jsonify({"ok":True,"id":cur.lastrowid}),201
@@ -166,6 +215,51 @@ def install(bp, db, now):
                 conn.close()
         except (TypeError,ValueError,sqlite3.IntegrityError) as exc:
             return bad(str(exc))
+
+    @bp.patch("/api/layers/fields/<int:field_id>/description")
+    def edit_layer_field_description(field_id):
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or "description" not in payload:
+            return bad("Supply a description (empty to inherit).")
+        try:
+            description = string(payload["description"], "Description", 4000)
+        except ValueError as exc:
+            return bad(str(exc))
+        conn = db()
+        try:
+            ensure_schema(conn)
+            with conn:
+                old = conn.execute("SELECT description FROM qb_layer_fields WHERE id=?", (field_id,)).fetchone()
+                if old is None:
+                    return bad("Field not found.",404)
+                conn.execute("UPDATE qb_layer_fields SET description=? WHERE id=?", (description,field_id))
+                audit(conn,"update_layer_field_description","layer_field",field_id,
+                      {"before":old["description"],"after":description})
+            return jsonify({"ok":True,"id":field_id,"description":description})
+        finally:
+            conn.close()
+
+    @bp.patch("/api/layers/source-fields/<int:field_id>/description")
+    def edit_source_field_description(field_id):
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or "description" not in payload:
+            return bad("Supply a description.")
+        try:
+            description = string(payload["description"], "Description", 4000)
+        except ValueError as exc:
+            return bad(str(exc))
+        conn = db()
+        try:
+            with conn:
+                old = conn.execute("SELECT comment FROM qb_columns WHERE id=?",(field_id,)).fetchone()
+                if old is None:
+                    return bad("Source field not found.",404)
+                conn.execute("UPDATE qb_columns SET comment=? WHERE id=?",(description,field_id))
+                audit(conn,"update_source_field_description","column",field_id,
+                      {"before":old["comment"],"after":description})
+            return jsonify({"ok":True,"id":field_id,"description":description})
+        finally:
+            conn.close()
 
     @bp.post("/api/layers/lineage")
     def add_lineage():
@@ -254,7 +348,8 @@ def install(bp, db, now):
                         raise ValueError("Invalid field")
                     parsed.append((string(field.get("field_name"),"Field",200,True),
                                    string(field.get("data_type"),"Type",200),
-                                   string(field.get("expression"),"Expression",2000)))
+                                   string(field.get("expression"),"Expression",2000),
+                                   string(field.get("description"),"Description",4000)))
                 planned.append((kind,application,name,catalog,schema,parsed))
             if request.args.get("preview")=="1":
                 return jsonify({"ok":True,"objects":len(planned),
@@ -274,11 +369,11 @@ def install(bp, db, now):
                                AND object_name=? AND catalog=? AND schema_name=?""",
                             (kind,app,name,catalog,schema),
                         ).fetchone()[0]
-                        for position,(field,dtype,expression) in enumerate(fields,1):
+                        for position,(field,dtype,expression,description) in enumerate(fields,1):
                             conn.execute(
                                 """INSERT OR IGNORE INTO qb_layer_fields
-                                   (object_id,field_name,data_type,expression,ordinal_position)
-                                   VALUES (?,?,?,?,?)""",(oid,field,dtype or None,expression,position),
+                                   (object_id,field_name,data_type,expression,description,ordinal_position)
+                                   VALUES (?,?,?,?,?,?)""",(oid,field,dtype or None,expression,description,position),
                             )
                     audit(conn,"import_application_layer","layer_object",None,
                           {"objects":len(planned),"fields":sum(len(x[5]) for x in planned)})
