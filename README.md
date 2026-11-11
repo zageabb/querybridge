@@ -643,3 +643,25 @@ schema definitions or operational settings is deliberately outside the scope
 of this screen. Changes to local metadata may affect schema diagrams, SQL
 builder results or saved mappings. Existing source-dictionary table definitions
 are not modified by merely browsing records.
+
+
+### Field-level schema diagrams for selected Databricks and TAIJU layers
+
+In Schema Map, **Source dictionaries** retains the original relationship overview
+and detailed schema. **Databricks selections** and **Application consumption**
+display *only the recorded selected objects and fields in that layer*, using
+the same detailed table/field Graphviz cards as the source schema. A Databricks
+object's title uses `catalog.schema.table` when catalog/schema are stored.
+**End-to-end lineage** shows the selected source fields, Databricks fields
+and consuming application fields together.
+
+Where both ends of an existing, recorded source dictionary equality join have
+explicit mappings, QueryBridge projects it to the corresponding Databricks
+fields and then to consuming application fields where mapped. Those connections
+retain `mapped:<source>` provenance and are *candidate schema joins*, not
+verification that a SQL join produces valid business results. End-to-end view
+also retains directional field lineage; it never substitutes an equality join
+for a lineage mapping. Unmapped source fields are never included in derived
+tables. Focus, field highlighting, SVG/DOT and Mermaid follow the selected
+schema layer. Even the derived-layer Overview selection deliberately displays
+field rows to avoid collapsing the important links into table-only lines.
