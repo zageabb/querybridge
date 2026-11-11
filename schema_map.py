@@ -265,6 +265,8 @@ def export_standalone_html():
             "layer": chosen,
             "application": request.args.get("application", ""),
             "mode": request.args.get("mode", "detail"),
+            "theme": "dark" if request.args.get("theme") == "dark" else "light",
+            "embedded": request.args.get("embedded") == "1",
         },
     }
     response = Response(export_html(snapshot), mimetype="text/html")
