@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from application_layers import ensure_schema
+from application_layers import ensure_schema, resolved_descriptions
 
 TABLE_OFFSET = 1_000_000_000
 FIELD_OFFSET = 2_000_000_000
@@ -51,6 +51,7 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
         return empty(applications)
 
     object_by_id = {o["id"]: o for o in objects}
+    descriptions = resolved_descriptions(conn)
     field_by_id = {f["id"]: f for f in fields}
     fields_by_object = defaultdict(list)
     for f in fields:
@@ -129,6 +130,8 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
                 "id": FIELD_OFFSET + f["id"], "table_id": tid,
                 "column_name": f["field_name"], "data_type": f["data_type"],
                 "nullable": None, "comment": f["expression"],
+                "description": descriptions[f["id"]][0],
+                "description_source": descriptions[f["id"]][1],
                 "ordinal_position": f["ordinal_position"],
             } for f in selected],
         }
@@ -238,7 +241,9 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
                     tables[left_tid]["fields"].append({
                         "id": left_fid, "table_id": left_tid, "column_name": left_name,
                         "data_type": src["data_type"], "nullable": src["nullable"],
-                        "comment": src["comment"], "ordinal_position": src["ordinal_position"],
+                        "comment": src["comment"], "description": src["comment"],
+                        "description_source": "explicit" if src["comment"] else "none",
+                        "ordinal_position": src["ordinal_position"],
                     })
                     tables[left_tid]["field_count"] += 1
             links.append({
