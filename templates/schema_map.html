@@ -38,6 +38,14 @@
     </div>
   </div>
   <section class="schema-map-toolbar panel" aria-label="Diagram filters">
+    <label>Data layer
+      <select id="map-layer">
+        <option value="source">Source dictionaries</option>
+        <option value="databricks">Databricks selections</option>
+        <option value="application">Application consumption</option>
+        <option value="lineage">End-to-end lineage</option>
+      </select>
+    </label>
     <label>Diagram view
       <select id="map-view">
         <option value="overview">Overview · tables and links</option>
@@ -75,7 +83,7 @@
           <div id="map-empty">Loading graph…</div>
         </div>
       </div>
-      <p class="schema-map-legend">Lines = recorded joins · Grey tables = unjoined in the selected scope · Orange tables = linked tables in another application. In the detailed view, lines attach to the exact captured field rows. Cardinality is not assumed.</p>
+      <p class="schema-map-legend">Source view lines = recorded equality joins; other layers = documented field lineage (not SQL joins) · Grey tables = unjoined in the selected scope · Orange tables = linked tables in another application. In the detailed view, lines attach to the exact captured field rows. Cardinality is not assumed.</p>
       <details class="schema-map-source">
         <summary>View Mermaid source (compatible with Mermaid Final)</summary>
         <pre id="map-source"></pre>
