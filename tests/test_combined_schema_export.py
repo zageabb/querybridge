@@ -185,3 +185,39 @@ def test_graphviz_layout_no_network_or_script_injection():
     positions = graphviz_layout(graph)
     assert not positions or set(positions) == {"1", "2"}
     # Graphviz only sees numeric local IDs; captured table names are never DOT input.
+
+
+def test_live_interactive_schema_renderer_and_theme_controls(client):
+    response = client.get("/schema-map")
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert 'id="map-renderer"' in page
+    assert 'value="interactive"' in page
+    assert 'value="graphviz"' in page
+    assert 'id="map-theme-toggle"' in page
+    assert 'id="map-interactive-frame"' in page
+
+
+def test_live_inline_export_and_saved_theme_toggle(client):
+    response = client.get(
+        "/api/schema-map/export-html?inline=1&subset=1&layer=combined&theme=dark"
+    )
+    assert response.status_code == 200
+    assert response.headers["Content-Disposition"].startswith("inline;")
+    assert "frame-ancestors 'self'" in response.headers["Content-Security-Policy"]
+    page = response.get_data(as_text=True)
+    assert 'id="theme-toggle"' in page
+    assert 'querybridge.theme' in page
+    assert 'data-theme="dark"' in page or 'setTheme(snapshot.initial' in page
+    assert 'function bindTableDrag(' in page
+    assert 'function routedPath(' in page
+
+
+def test_default_export_still_downloads_independent_html(client):
+    response = client.get("/api/schema-map/export-html?subset=1&layer=combined")
+    assert response.status_code == 200
+    assert response.headers["Content-Disposition"].startswith("attachment;")
+    html = response.get_data(as_text=True)
+    assert "--panel:" in html
+    assert 'id="theme-toggle"' in html
+    assert "<script" in html
