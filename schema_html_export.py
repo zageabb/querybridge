@@ -29,7 +29,7 @@ button{cursor:pointer}button:hover{background:#354b60}.check{flex-direction:row;
 .meta{color:#c2d3e0;font-size:11px;padding:8px}.edges{stroke:#7ab4df;stroke-width:2;fill:none}.edges.active{stroke:#ffd166;stroke-width:4}.edges.lineage{stroke:#15a1b7;stroke-dasharray:6 4}.node.db{border-color:#188cb7}.node.ui{border-color:#996ed0}
 #help{position:absolute;bottom:12px;left:15px;background:#14212ae8;padding:9px 12px;border-radius:7px;font-size:11px;color:#c7d6e2;pointer-events:none}
 </style></head><body>
-<header><h1>QueryBridge · Standalone Schema Map</h1><p>Read-only snapshot · works offline · click table headers to expand/collapse fields, click fields to highlight recorded joins</p></header>
+<header><h1>QueryBridge · Standalone Schema Map</h1><p>Read-only metadata snapshot · no live data access · works offline · click table headers to expand/collapse fields, click fields to highlight recorded joins</p></header>
 <div class="toolbar">
 <label>Data layer<select id="layer"><option value="source">Source dictionaries</option><option value="databricks">Databricks selections</option><option value="application">Application consumption</option><option value="combined">Databricks + Application (UI)</option><option value="lineage">End-to-end lineage</option></select></label>
 <label>Application<select id="application"></select></label>
@@ -99,6 +99,13 @@ function highlight(id){
 function draw(){
  const items=filterTables();rendered=items;const visible=new Set(items.map(t=>String(t.id)));
  $("nodes").replaceChildren();$("lines").replaceChildren();positions=new Map();
+ const defs=document.createElementNS("http://www.w3.org/2000/svg","defs");
+ const marker=document.createElementNS("http://www.w3.org/2000/svg","marker");
+ marker.setAttribute("id","lineage-arrow");marker.setAttribute("markerWidth","9");marker.setAttribute("markerHeight","9");
+ marker.setAttribute("refX","8");marker.setAttribute("refY","4");marker.setAttribute("orient","auto");
+ const arrow=document.createElementNS("http://www.w3.org/2000/svg","path");
+ arrow.setAttribute("d","M0 0 L8 4 L0 8");arrow.setAttribute("stroke","#15a1b7");arrow.setAttribute("fill","none");
+ marker.append(arrow);defs.append(marker);$("lines").append(defs);
  const detail=$("mode").value==="detail";
  const combined=$("layer").value==="combined";
  const cols=combined?2:Math.max(1,Math.ceil(Math.sqrt(items.length/1.5)));
@@ -149,12 +156,12 @@ function draw(){
  const p1=anchor(a,l.left_table_id,l.left_column_id,"right");
  const p2=anchor(b,l.right_table_id,l.right_column_id,"left");
  const x1=p1.x,y1=p1.y,x2=p2.x,y2=p2.y;
- const path=document.createElementNS("http://www.w3.org/2000/svg","path");path.classList.add("edges");if(l.relationship_type==="lineage")path.classList.add("lineage");path.dataset.id=String(l.id);
+ const path=document.createElementNS("http://www.w3.org/2000/svg","path");path.classList.add("edges");if(l.relationship_type==="lineage"){path.classList.add("lineage");path.setAttribute("marker-end","url(#lineage-arrow)")}path.dataset.id=String(l.id);
  const middle=(x1+x2)/2;path.setAttribute("d","M"+x1+" "+y1+" L"+middle+" "+y1+" L"+middle+" "+y2+" L"+x2+" "+y2);
- const tip=document.createElementNS("http://www.w3.org/2000/svg","title");tip.textContent=(byId.get(String(l.left_table_id))?.table_name||"")+"."+l.left_field+" = "+(byId.get(String(l.right_table_id))?.table_name||"")+"."+l.right_field+" ("+(l.source||"recorded")+")";path.append(tip);$("lines").append(path)
+ const tip=document.createElementNS("http://www.w3.org/2000/svg","title");tip.textContent=(byId.get(String(l.left_table_id))?.table_name||"")+"."+l.left_field+(l.relationship_type==="lineage"?" → ":" = ")+(byId.get(String(l.right_table_id))?.table_name||"")+"."+l.right_field+" ("+(l.source||"recorded")+")";path.append(tip);$("lines").append(path)
  }
  refreshFields(items);if(selected)highlight(selected);
- $("stats").textContent=items.length+" tables · "+links.filter(l=>visible.has(String(l.left_table_id))&&visible.has(String(l.right_table_id))).length+" recorded joins";
+ $("stats").textContent=items.length+" tables · "+links.filter(l=>visible.has(String(l.left_table_id))&&visible.has(String(l.right_table_id))).length+" recorded links";
  applyTransform();
 }
 function fit(){const r=$("viewport").getBoundingClientRect(),w=$("world").offsetWidth,h=$("world").offsetHeight;zoom=Math.min(1.4,Math.max(.1,Math.min((r.width-40)/Math.max(w,1),(r.height-40)/Math.max(h,1))));panX=20;panY=20;applyTransform()}
