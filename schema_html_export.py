@@ -60,27 +60,30 @@ def export_html(snapshot):
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>QueryBridge · Offline Schema Map</title>
 <style>
-:root{font-family:system-ui,-apple-system,sans-serif;color-scheme:dark;background:#101820;color:#e6eef5}
-*{box-sizing:border-box}body{margin:0}header{padding:14px 20px;background:#192633;border-bottom:1px solid #394959}
-h1{font-size:20px;margin:0 0 5px}p{margin:3px 0;color:#aabac8;font-size:12px}
-.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;padding:12px 20px;background:#17222d}
-label{display:flex;flex-direction:column;font-size:12px;gap:4px}select,input,button{font:inherit;border:1px solid #526578;background:#233447;color:#fff;padding:7px;border-radius:6px}
-button{cursor:pointer}button:hover{background:#354b60}.check{flex-direction:row;align-items:center}
-#stats{margin-left:auto;color:#bdcbd8;font-size:12px}
-#viewport{height:calc(100vh - 155px);min-height:460px;overflow:hidden;position:relative;cursor:grab;touch-action:none;background-image:radial-gradient(#344353 1px,transparent 1px);background-size:24px 24px}
+:root{font-family:system-ui,-apple-system,sans-serif;color-scheme:light;--bg:#f4f7fb;--fg:#182230;--panel:#ffffff;--panel-alt:#f8fafc;--line:#d6e0ea;--control:#ffffff;--muted:#667085;--canvas:#eff4fa;--dots:#c9d5e1;--card:#ffffff;--card-head:#e6edf5;--card-text:#182230;--field-line:#e4eaf1;--edge:#6684a8;--active:#f5d769;background:var(--bg);color:var(--fg)}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#101820;--fg:#e6eef5;--panel:#192633;--panel-alt:#17222d;--line:#394959;--control:#233447;--muted:#aabac8;--canvas:#111d28;--dots:#344353;--card:#223143;--card-head:#31465b;--card-text:#ffffff;--field-line:#34485b;--edge:#7ab4df;--active:#745f24}
+html,body{background:var(--bg);color:var(--fg)}
+*{box-sizing:border-box}body{margin:0}header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+h1{font-size:20px;margin:0 0 5px}p{margin:3px 0;color:var(--muted);font-size:12px}
+.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;padding:12px 20px;background:var(--panel-alt);border-bottom:1px solid var(--line)}
+label{display:flex;flex-direction:column;font-size:12px;gap:4px}select,input,button{font:inherit;border:1px solid var(--line);background:var(--control);color:var(--fg);padding:7px;border-radius:6px}
+button{cursor:pointer}button:hover{background:var(--card-head)}.check{flex-direction:row;align-items:center}
+#stats{margin-left:auto;color:var(--muted);font-size:12px}
+#viewport{height:calc(100vh - 155px);min-height:460px;overflow:hidden;position:relative;cursor:grab;touch-action:none;background-color:var(--canvas);background-image:radial-gradient(var(--dots) 1px,transparent 1px);background-size:24px 24px}
 #viewport.grabbing{cursor:grabbing}#world{position:absolute;left:0;top:0;transform-origin:0 0}
 #lines{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
-.node{position:absolute;width:245px;background:#223143;border:1px solid #607489;border-radius:9px;overflow:hidden;box-shadow:0 5px 22px #0006}
+.node{position:absolute;width:245px;background:var(--card);color:var(--card-text);border:1px solid var(--line);border-radius:9px;overflow:hidden;box-shadow:0 5px 22px #0006}
 .node.external{border-color:#e9a85d}.node.unjoined{border-color:#65707b;opacity:.82}.node.selected{outline:3px solid #75c8ff}
-.node header{background:#31465b;padding:9px 11px;border:0;cursor:move;touch-action:none;user-select:none}
-.node strong{font-size:13px;overflow-wrap:anywhere}.node small{display:block;color:#b8c6d2;font-size:10px;margin-top:3px}
-.fields{padding:2px 0;overflow:visible}.field{padding:7px 10px;min-height:29px;border-top:1px solid #34485b;font-size:11px;display:flex;justify-content:space-between;gap:6px;cursor:pointer}
-.field:hover,.field.active{background:#745f24}.field span{overflow-wrap:anywhere}.field em{color:#9eafbf;font-style:normal}
-.meta{color:#c2d3e0;font-size:11px;padding:8px}.edges{stroke:#7ab4df;stroke-width:2;fill:none}.edges.lineage{stroke:#15a1b7;stroke-dasharray:6 4}.edges.active{stroke:#ffd166;stroke-width:4}.node.db{border-color:#188cb7}.node.ui{border-color:#996ed0}
-#help{position:absolute;bottom:12px;left:15px;background:#14212ae8;padding:9px 12px;border-radius:7px;font-size:11px;color:#c7d6e2;pointer-events:none}
+.node header{background:var(--card-head);padding:9px 11px;border:0;cursor:move;touch-action:none;user-select:none}
+.node strong{font-size:13px;overflow-wrap:anywhere;color:var(--card-text)}.node small{display:block;color:var(--muted);font-size:10px;margin-top:3px}
+.fields{padding:2px 0;overflow:visible}.field{padding:7px 10px;min-height:29px;border-top:1px solid var(--field-line);font-size:11px;display:flex;justify-content:space-between;gap:6px;cursor:pointer}
+.field:hover,.field.active{background:var(--active)}.field span{overflow-wrap:anywhere}.field em{color:var(--muted);font-style:normal}
+.meta{color:var(--muted);font-size:11px;padding:8px}.edges{stroke:var(--edge);stroke-width:2;fill:none}.edges.lineage{stroke:#15a1b7;stroke-dasharray:6 4}.edges.active{stroke:#ffd166;stroke-width:4}.node.db{border-color:#188cb7}.node.ui{border-color:#996ed0}
+#help{position:absolute;bottom:12px;left:15px;background:var(--panel);border:1px solid var(--line);padding:9px 12px;border-radius:7px;font-size:11px;color:var(--fg);pointer-events:none}
 </style></head><body>
 <header><h1>QueryBridge · Standalone Schema Map</h1><p id="scope-banner"></p><p>Read-only metadata snapshot · no live data access · works offline · click table headers to expand/collapse fields or drag to reposition tables, click fields to highlight recorded joins</p></header>
 <div class="toolbar">
+<button id="theme-toggle" type="button" aria-label="Switch colour theme" aria-pressed="false">◐ Dark mode</button>
 <label>Data layer<select id="layer"><option value="source">Source dictionaries</option><option value="databricks">Databricks selections</option><option value="application">Application consumption</option><option value="combined">Databricks + Application (UI)</option><option value="lineage">End-to-end lineage</option></select></label>
 <label>Application<select id="application"></select></label>
 <label>Focus table<select id="focus"></select></label>
@@ -100,6 +103,22 @@ button{cursor:pointer}button:hover{background:#354b60}.check{flex-direction:row;
 "use strict";
 const snapshot=JSON.parse(document.getElementById("snapshot").textContent);
 const $=id=>document.getElementById(id);
+const themeKey="querybridge.theme";
+function storedTheme(){try{return localStorage.getItem(themeKey)}catch(_){return null}}
+function setTheme(value,save=true){
+ const theme=value==="dark"?"dark":"light";
+ document.documentElement.dataset.theme=theme;
+ $("theme-toggle").textContent=theme==="dark"?"☀ Light mode":"◐ Dark mode";
+ $("theme-toggle").setAttribute("aria-pressed",String(theme==="dark"));
+ if(save){try{localStorage.setItem(themeKey,theme)}catch(_){}}
+}
+setTheme(snapshot.initial?.theme||storedTheme()||"light",false);
+$("theme-toggle").onclick=()=>setTheme(document.documentElement.dataset.theme==="dark"?"light":"dark");
+window.addEventListener("message",event=>{
+ if(event.data?.type!=="querybridge:set-theme")return;
+ if(event.origin!==location.origin&&event.origin!=="null")return;
+ setTheme(event.data.theme);
+});
 let graph={tables:[],relationships:[]},tables=[],links=[],byId=new Map();
 $("scope-banner").textContent="Export scope: "+(snapshot.scope||"all captured layers");
 for(const option of $("layer").options){option.disabled=!Object.prototype.hasOwnProperty.call(snapshot.layers,option.value)}
