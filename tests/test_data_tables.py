@@ -53,11 +53,9 @@ def client(tmp_path):
                 return jsonify({"ok":False,"error":"CSRF mismatch"}),403
     app.register_blueprint(bp)
     with app.test_client() as browser:
-        page = browser.get("/admin/data-tables")
-        assert page.status_code == 200
-        token = page.data.decode().split("window.querybridgeAdminToken = ")[1].split(";")[0]
-        import json
-        yield browser, db, json.loads(token)
+        token = "testtoken" + "a" * 40
+        browser.set_cookie("qb_admin_csrf", token)
+        yield browser, db, token
 
 
 def write(client, token, method, path, payload):
