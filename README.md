@@ -588,3 +588,27 @@ list-based mapping and lineage browser under Admin. Existing Schema Explorer,
 Schema Map and Query Builder retain their source-metadata views; adding a
 dedicated selectable Databricks/application diagram and SQL generation from
 layer objects is a subsequent integration step, not implemented by this change.
+
+
+## Layer-aware Schema Explorer and Schema Map
+
+Use the **Data layer** selector in Schema Explorer or Schema Map:
+- **Source dictionaries**: the original full captured tables, fields and stored
+  equality joins; unchanged by application selection and lineage mappings.
+- **Databricks selections**: mapped Databricks objects and only their selected
+  fields, alongside source columns used by those mappings.
+- **Application consumption**: selected fields for TAIJU (or another application)
+  and their recorded upstream Databricks fields.
+- **End-to-end lineage**: all three levels connected by field-level provenance.
+
+Use **Application** to filter consuming applications, **Focus** to isolate one
+object and adjacent provenance, and **Detail** to show mapped fields. Existing
+Graphviz SVG, DOT and Mermaid exports work with the selected layer, with
+lineage edges labelled as *mappings* rather than SQL equality joins.
+The Explorer's layer list can be searched by field, object, source or
+transformation. The Source mode still uses its established paginated browser.
+
+Layer views do **not** discover, infer or verify Databricks transformations.
+They only display mappings recorded in Admin. An unmapped field has no
+fabricated source lineage. They do not change the SQL Query Builder's existing
+source-based semantics.
