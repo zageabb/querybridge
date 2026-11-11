@@ -523,3 +523,68 @@ upload accepts only curated subsets; the bulk CSV utility is the supported
 large-import path. For very large systems consider importing the SCM/SAP MM
 modules you actually need first, or run the import on a maintenance copy of
 the SQLite database and swap it into service after successful validation.
+
+
+## Application Data Layers (TAIJU and other consumers)
+
+**Admin → Application Data Layers** keeps source-system dictionaries independent from
+the smaller Databricks views and application-specific field selections. No live
+source systems or Databricks objects are modified.
+
+Three levels are represented:
+1. **Source dictionary:** existing `qb_tables` and `qb_columns`, including
+   fields not used by any application.
+2. **Databricks:** `qb_layer_objects` with kind `databricks` and their
+   explicitly selected `qb_layer_fields`. Map fields from one or more source
+   dictionary columns; document transformations with `expression`.
+3. **Application consumption:** `qb_layer_objects` with kind `application`
+   (e.g. TAIJU/DPPP) and selected `qb_layer_fields`, linked to the corresponding
+   Databricks fields. The underlying source dictionary remains intact.
+
+`qb_layer_lineage` records edges, allowing a Databricks field to derive from
+multiple source columns. Mapping an application field directly to source
+dictionary columns is intentionally rejected to preserve the Databricks layer.
+Lineage is descriptive metadata, not executed SQL or proof that live processing
+matches the mapping.
+
+### Application layer JSON import
+
+Download or copy `samples/application_layer_template.json`, then import it
+from Admin. The format is `querybridge-application-layer`, version `1`.
+Each object needs a `kind` (`databricks` or `application`),
+`application_name`, `object_name`, and a selected `fields` array of names
+or objects with `field_name`, `data_type`, and `expression`.
+The importer has a dry-run preview and an additive atomic apply. It does not
+remove unused source fields or overwrite existing layer definitions. Lineage
+is added separately from Admin against verified existing field identities.
+
+### Source-independent dictionary import
+
+For any source application, export a sorted UTF-8 CSV with `TABLE_NAME` and
+`FIELD_NAME`, plus optional `TABLE_DESCRIPTION`, `FIELD_DESCRIPTION`,
+`DATA_TYPE`, `POSITION`, and `LENGTH`. Run:
+
+```bash
+python scripts/import_sap_ddic.py procure_dictionary.csv --application Procure --db instance/querybridge.db
+python scripts/import_sap_ddic.py procure_dictionary.csv --application Procure --db instance/querybridge.db --apply
+```
+
+The filename is kept for backward compatibility; SAP imports retain their
+existing defaults. For non-SAP applications the default prefix is empty,
+and Y/Z table name filtering is disabled. Importing over a table explicitly
+assigned to a different application is rejected.
+
+### Application-independent relationship import
+
+The existing SAP `querybridge-sap-links` version 1 JSON format remains valid.
+For a different application use `querybridge-links` version 1 instead, with
+`application` set to the source-system name. See
+`samples/generic_links_template.json`. The Admin Preview/Confirm UI works
+with either format. These relationship joins are stored on the source dictionary
+rather than the application lineage layer.
+
+**Scope:** The new Application Data Layers editor currently offers a
+list-based mapping and lineage browser under Admin. Existing Schema Explorer,
+Schema Map and Query Builder retain their source-metadata views; adding a
+dedicated selectable Databricks/application diagram and SQL generation from
+layer objects is a subsequent integration step, not implemented by this change.
