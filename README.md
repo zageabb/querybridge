@@ -665,3 +665,26 @@ for a lineage mapping. Unmapped source fields are never included in derived
 tables. Focus, field highlighting, SVG/DOT and Mermaid follow the selected
 schema layer. Even the derived-layer Overview selection deliberately displays
 field rows to avoid collapsing the important links into table-only lines.
+
+## Combined Databricks + Application UI schema and offline export
+
+Schema Map now includes **Databricks + Application (UI)** alongside Source,
+Databricks, Application and End-to-end. The combined view shows captured
+Databricks/EDP tables and explicitly mapped consuming-application fields
+together, with directional field-to-field lineage arrows. Source dictionaries
+remain available in the End-to-end view and are not shown by default in the
+combined view. A field's application data-model name is displayed as recorded:
+screen/control labels are **not inferred** if not supplied in metadata.
+
+Select **Export Interactive HTML** on Schema Map to download a standalone
+read-only HTML snapshot with all five data-layer choices and embedded tables,
+fields and links. The saved file can be explored offline using application,
+focus, search, overview/detail, show-unjoined and cross-application controls;
+use wheel/buttons to zoom and drag empty canvas to pan. Expand table headers
+and select fields to highlight recorded mappings. The exported HTML contains
+metadata, including potentially sensitive field names and transformation
+notes, but not source business rows. Share it only with appropriate recipients.
+
+The live view and exported HTML show only documented field mappings; they
+never invent joins, a user-interface label, source availability or cardinality.
+The active layer and application filter are selected when the export opens.
