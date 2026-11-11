@@ -251,10 +251,20 @@ def install(bp, db, now, csrf_cookie):
                 before = row_to_json(old)
                 if signature(before) != payload["version"]:
                     return failure("Record changed; reload before deleting.",409)
-                # Do not silently cascade-delete dependent records. SQLite FK
-                # cascades can otherwise remove large portions of a dictionary.
-                child = conn.execute(f"SELECT 1 FROM {quote(table)} WHERE id=?",(record_id,)).fetchone()
-                assert child
+                # Block cascades even when foreign keys specify ON DELETE CASCADE.
+                for child_row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+                    child_table = child_row[0]
+                    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", child_table):
+                        continue
+                    foreign = conn.execute(f"PRAGMA foreign_key_list({quote(child_table)})").fetchall()
+                    for fk in foreign:
+                        if fk["table"] != table or fk["to"] != "id":
+                            continue
+                        if conn.execute(
+                            f"SELECT 1 FROM {quote(child_table)} WHERE {quote(fk['from'])}=? LIMIT 1",
+                            (record_id,),
+                        ).fetchone():
+                            return failure(f"Delete blocked: {child_table} still references this record.", 409)
                 conn.execute(f"DELETE FROM {quote(table)} WHERE id=?", (record_id,))
                 log(conn,"data_record_delete",table,record_id,before,None)
             return jsonify({"ok": True})
