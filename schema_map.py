@@ -219,7 +219,7 @@ def diagram():
     field_ids = {c["id"] for t in payload["tables"] for c in t["fields"]}
     if highlighted is not None and highlighted not in field_ids:
         return jsonify({"ok": False, "error": "Selected field is outside the diagram."}), 400
-    effective_mode = "detail" if payload.get("layer") in ("databricks", "application", "lineage", "combined") else mode
+    effective_mode = mode  # Overview is table-only in every layer; Detail shows field ports.
     source = dot_graph(payload, mode=effective_mode, highlight_field=highlighted,
                        show_descriptions=as_bool(request.args.get("show_descriptions")))
     if output_format == "dot":
