@@ -2,8 +2,58 @@
 from __future__ import annotations
 import html
 import json
+import shlex
+import subprocess
+
+
+def graphviz_layout(graph):
+    """Compute a stable, relationship-aware node order for the offline HTML canvas.
+
+    Layout is exported as metadata only; the browser owns its HTML field rows and
+    routes SVG connectors again when tables are expanded, filtered or dragged.
+    """
+    tables = graph.get("tables", [])
+    if not tables or len(tables) > 250:
+        return {}
+    ids = {str(t["id"]) for t in tables}
+    dot = [
+        "digraph schema {",
+        'graph [rankdir=LR, nodesep=0.60, ranksep=1.45, splines=ortho];',
+        'node [shape=box, fixedsize=true, width=3.4, height=0.9];',
+    ]
+    for table in tables:
+        dot.append(f'T{int(table["id"])};')
+    for link in graph.get("relationships", []):
+        a, b = str(link.get("left_table_id")), str(link.get("right_table_id"))
+        if a in ids and b in ids and a != b:
+            # Only saved edges inform layout; lineage is directional.
+            direction = "" if link.get("relationship_type") == "lineage" else " [dir=none]"
+            dot.append(f"T{int(a)} -> T{int(b)}{direction};")
+    dot.append("}")
+    try:
+        result = subprocess.run(
+            ["dot", "-Tplain"], input="\n".join(dot),
+            capture_output=True, text=True, timeout=18, check=False
+        )
+        if result.returncode:
+            return {}
+        positions = {}
+        for line in result.stdout.splitlines():
+            parts = shlex.split(line)
+            if len(parts) >= 4 and parts[0] == "node" and parts[1].startswith("T"):
+                tid = parts[1][1:]
+                if tid in ids:
+                    positions[tid] = [round(float(parts[2]), 3), round(float(parts[3]), 3)]
+        return positions if len(positions) == len(tables) else {}
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        # Keep the offline export usable on installations without Graphviz.
+        return {}
+
 
 def export_html(snapshot):
+    snapshot = {**snapshot, "layouts": {
+        layer: graphviz_layout(graph) for layer, graph in snapshot.get("layers", {}).items()
+    }}
     # Escape "<" so captured metadata cannot break out of the JSON script element.
     data = json.dumps(snapshot, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     template = r'''<!doctype html>
