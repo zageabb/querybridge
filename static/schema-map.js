@@ -40,7 +40,7 @@
     if (includeFocus && focus.value) args.set("focus_table", focus.value);
     if (includeMode) {
       args.set("mode", view.value);
-      if (field.value && view.value === "detail") args.set("highlight_field", field.value);
+      if (field.value && (view.value === "detail" || layer.value !== "source")) args.set("highlight_field", field.value);
     }
     return args;
   }
@@ -78,7 +78,7 @@
       option(field, f.id, t.table_name + " · " + f.column_name)
     ));
     field.value = previous;
-    el("map-field-label").hidden = view.value !== "detail";
+    el("map-field-label").hidden = view.value !== "detail" && layer.value === "source";
   }
   function stats(graph) {
     const cards = [
@@ -237,7 +237,8 @@
     el("map-title").textContent = layer.value === "source" ? (view.value === "detail"
       ? "Detailed table and field relationships" : "Table relationship overview") :
       (layer.options[layer.selectedIndex].text + " · " + (view.value === "detail" ? "fields" : "objects"));
-    state.mermaid = view.value === "detail" ? renderer.detailed(graph) : renderer.overview(graph);
+    state.mermaid = view.value === "detail" || layer.value !== "source"
+      ? renderer.detailed(graph) : renderer.overview(graph);
     el("map-source").textContent = state.mermaid;
     await renderGraph(revision);
   }
@@ -258,11 +259,14 @@
   }
   layer.addEventListener("change", () => {
     app.value = ""; focus.value = ""; field.value = "";
+    view.value = layer.value === "source" ? "overview" : "detail";
     unjoined.checked = true;
     external.checked = false;
     reload().catch(showError);
   });
-  view.addEventListener("change", () => { field.value = ""; reload().catch(showError); });
+  view.addEventListener("change", () => {
+    field.value = ""; reload().catch(showError);
+  });
   app.addEventListener("change", () => { focus.value = ""; field.value = ""; reload().catch(showError); });
   focus.addEventListener("change", () => { field.value = ""; reload().catch(showError); });
   unjoined.addEventListener("change", () => reload().catch(showError));
