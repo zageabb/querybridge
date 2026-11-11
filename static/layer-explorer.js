@@ -39,16 +39,18 @@
         const joined = parents.join(" + ");
         const searchable = [
           table.layer_kind, table.application_name, table.table_name, field.column_name,
-          field.data_type, field.comment, joined
+          field.data_type, field.comment, field.description, joined
         ].join(" ").toLowerCase();
         if (!searchable.includes(q)) continue;
         const tr = document.createElement("tr");
         for (const value of [
           table.layer_kind || "source", table.application_name || "Unassigned",
           [table.catalog,table.schema_name,table.table_name].filter(Boolean).join("."),
-          field.column_name, field.data_type, joined || "No recorded upstream"
+          field.column_name, field.data_type,
+          field.description || "—", joined || "No recorded upstream"
         ]) tr.append(td(value));
-        if (field.comment) tr.title = "Expression / description: " + field.comment;
+        if (field.comment) tr.title = "Transformation: " + field.comment;
+        if (field.description_source === "inherited") tr.title += " · Description inherited from upstream";
         rows.append(tr);
         count++;
       }
@@ -57,7 +59,7 @@
     if (!count) {
       const tr = document.createElement("tr");
       const cell = td("No selected fields in this view. Add mappings under Admin → Application Data Layers.");
-      cell.colSpan = 6; tr.append(cell); rows.append(tr);
+      cell.colSpan = 7; tr.append(cell); rows.append(tr);
     }
   }
   async function load() {
