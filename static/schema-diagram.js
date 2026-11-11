@@ -49,7 +49,7 @@
     });
     Array.from(pairs.values()).sort((x,y) => x.a-y.a || x.b-y.b).forEach(pair => {
       lines.push("    T" + pair.a + ' ---|"' + pair.count +
-        (pair.lineage === pair.count ? (pair.count === 1 ? " mapping" : " mappings") : (pair.count === 1 ? " link" : " links")) + '"| T' + pair.b);
+        (pair.lineage === pair.count ? (pair.count === 1 ? " mapping" : " mappings") : pair.lineage === 0 ? (pair.count === 1 ? " join" : " joins") : (pair.count === 1 ? " link" : " links")) + '"| T' + pair.b);
     });
     lines.push("    classDef orphan fill:#f8fafc,stroke:#98a2b3,stroke-dasharray:5 4");
     lines.push("    classDef external fill:#fff7ed,stroke:#f79009");
