@@ -76,7 +76,7 @@ button{cursor:pointer}button:hover{background:#354b60}.check{flex-direction:row;
 .node strong{font-size:13px;overflow-wrap:anywhere}.node small{display:block;color:#b8c6d2;font-size:10px;margin-top:3px}
 .fields{padding:2px 0;overflow:visible}.field{padding:7px 10px;min-height:29px;border-top:1px solid #34485b;font-size:11px;display:flex;justify-content:space-between;gap:6px;cursor:pointer}
 .field:hover,.field.active{background:#745f24}.field span{overflow-wrap:anywhere}.field em{color:#9eafbf;font-style:normal}
-.meta{color:#c2d3e0;font-size:11px;padding:8px}.edges{stroke:#7ab4df;stroke-width:2;fill:none}.edges.active{stroke:#ffd166;stroke-width:4}.edges.lineage{stroke:#15a1b7;stroke-dasharray:6 4}.node.db{border-color:#188cb7}.node.ui{border-color:#996ed0}
+.meta{color:#c2d3e0;font-size:11px;padding:8px}.edges{stroke:#7ab4df;stroke-width:2;fill:none}.edges.lineage{stroke:#15a1b7;stroke-dasharray:6 4}.edges.active{stroke:#ffd166;stroke-width:4}.node.db{border-color:#188cb7}.node.ui{border-color:#996ed0}
 #help{position:absolute;bottom:12px;left:15px;background:#14212ae8;padding:9px 12px;border-radius:7px;font-size:11px;color:#c7d6e2;pointer-events:none}
 </style></head><body>
 <header><h1>QueryBridge · Standalone Schema Map</h1><p id="scope-banner"></p><p>Read-only metadata snapshot · no live data access · works offline · click table headers to expand/collapse fields or drag to reposition tables, click fields to highlight recorded joins</p></header>
@@ -87,6 +87,7 @@ button{cursor:pointer}button:hover{background:#354b60}.check{flex-direction:row;
 <label>Diagram view<select id="mode"><option value="overview">Overview</option><option value="detail">Detail · fields</option></select></label>
 <label>Highlight field<select id="field"><option value="">None</option></select></label>
 <label class="check"><input type="checkbox" id="unjoined" checked>Show unjoined</label>
+<label class="check"><input type="checkbox" id="descriptions">Field descriptions</label>
 <label class="check"><input type="checkbox" id="cross" checked>Cross-application links</label>
 <label>Find table<input id="search" placeholder="Table name…"></label>
 <button id="fit">Fit / reset</button><button id="plus">Zoom +</button><button id="minus">Zoom −</button>
@@ -169,9 +170,9 @@ function layoutNodes(items,detail) {
      || String(a.table_name).localeCompare(String(b.table_name)));
    let y=24;
    for(const t of group){
-     const expanded=detail||opened.has(String(t.id));
+     const expanded=detail?!opened.has(String(t.id)):opened.has(String(t.id));
      // Each row gets sufficient space for labels/types, plus the fixed header.
-     const height=expanded?60+Math.max(1,(t.fields||[]).length)*29:58;
+     const height=expanded?60+Math.max(1,(t.fields||[]).length)*($("descriptions").checked?46:29):58;
      const saved=manualPositions.get(layer+":"+t.id);
      nodes.push({t,x:saved?.x??24+rankIndex*395,y:saved?.y??y,height,expanded});
      y+=height+80;
@@ -331,6 +332,10 @@ function draw(){
        line.title=[f.column_name,f.data_type,f.description,f.comment].filter(Boolean).join(" · ");
        const a=document.createElement("span"),b=document.createElement("em");
        a.textContent=f.column_name;b.textContent=f.data_type||"";
+       if($("descriptions").checked&&(f.description||f.comment)){
+         const desc=document.createElement("small");desc.textContent=f.description||f.comment;
+         a.append(desc);
+       }
        line.append(a,b);line.onclick=()=>highlight(String(f.id));body.append(line);
      }
      if(!(t.fields||[]).length){
@@ -347,13 +352,13 @@ function draw(){
  drawEdges();refreshFields(items);
  $("stats").textContent=items.length+" tables · "+
    links.filter(l=>positions.has(String(l.left_table_id))&&positions.has(String(l.right_table_id))).length+
-   " recorded links · Graphviz layout";
+   " recorded links · "+(Object.keys(snapshot.layouts?.[$("layer").value]||{}).length?"Graphviz layout":"automatic layout");
  applyTransform();
 }
 function fit(){const r=$("viewport").getBoundingClientRect(),w=$("world").offsetWidth,h=$("world").offsetHeight;zoom=Math.min(1.4,Math.max(.1,Math.min((r.width-40)/Math.max(w,1),(r.height-40)/Math.max(h,1))));panX=20;panY=20;applyTransform()}
 function update(){refreshFocus();draw();fit()}
 $("application").onchange=()=>{$("focus").value="";update()};
-$("focus").onchange=draw;$("mode").onchange=draw;$("cross").onchange=update;$("unjoined").onchange=draw;$("search").oninput=draw;
+$("focus").onchange=draw;$("mode").onchange=draw;$("descriptions").onchange=draw;$("cross").onchange=update;$("unjoined").onchange=draw;$("search").oninput=draw;
 $("field").onchange=()=>{selected=$("field").value;highlight(selected)};
 $("fit").onclick=fit;
 function changeZoom(f,cx,cy){const before=zoom;zoom=Math.max(.08,Math.min(4,zoom*f));panX=cx-(cx-panX)*zoom/before;panY=cy-(cy-panY)*zoom/before;applyTransform()}
