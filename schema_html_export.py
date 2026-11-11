@@ -63,6 +63,9 @@ def export_html(snapshot):
 :root{font-family:system-ui,-apple-system,sans-serif;color-scheme:light;--bg:#f4f7fb;--fg:#182230;--panel:#ffffff;--panel-alt:#f8fafc;--line:#d6e0ea;--control:#ffffff;--muted:#667085;--canvas:#eff4fa;--dots:#c9d5e1;--card:#ffffff;--card-head:#e6edf5;--card-text:#182230;--field-line:#e4eaf1;--edge:#6684a8;--active:#f5d769;background:var(--bg);color:var(--fg)}
 :root[data-theme="dark"]{color-scheme:dark;--bg:#101820;--fg:#e6eef5;--panel:#192633;--panel-alt:#17222d;--line:#394959;--control:#233447;--muted:#aabac8;--canvas:#111d28;--dots:#344353;--card:#223143;--card-head:#31465b;--card-text:#ffffff;--field-line:#34485b;--edge:#7ab4df;--active:#745f24}
 html,body{background:var(--bg);color:var(--fg)}
+:root[data-embedded="true"] body>header{display:none}
+:root[data-embedded="true"] .toolbar{padding:8px 12px;gap:9px}
+:root[data-embedded="true"] #viewport{height:calc(100vh - 78px)}
 *{box-sizing:border-box}body{margin:0}header{padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
 h1{font-size:20px;margin:0 0 5px}p{margin:3px 0;color:var(--muted);font-size:12px}
 .toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;padding:12px 20px;background:var(--panel-alt);border-bottom:1px solid var(--line)}
@@ -112,6 +115,7 @@ function setTheme(value,save=true){
  $("theme-toggle").setAttribute("aria-pressed",String(theme==="dark"));
  if(save){try{localStorage.setItem(themeKey,theme)}catch(_){}}
 }
+document.documentElement.dataset.embedded=String(Boolean(snapshot.initial?.embedded));
 setTheme(snapshot.initial?.theme||storedTheme()||"light",false);
 $("theme-toggle").onclick=()=>setTheme(document.documentElement.dataset.theme==="dark"?"light":"dark");
 window.addEventListener("message",event=>{
