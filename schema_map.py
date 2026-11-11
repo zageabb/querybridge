@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from flask import Blueprint, Response, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request, current_app
 from schema_graphviz import dot_graph, render_svg
+from schema_html_export import export_html
 
 bp = Blueprint("schema_map", __name__)
 _database = None
@@ -233,4 +234,34 @@ def diagram():
     if request.args.get("download") == "1":
         ext = "svg" if output_format == "svg" else "dot"
         response.headers["Content-Disposition"] = f'attachment; filename="querybridge-schema.{ext}"'
+    return response
+
+
+@bp.get("/api/schema-map/export-html")
+def export_standalone_html():
+    """A portable snapshot of every layer, including a focused two-lane UI view."""
+    chosen = request.args.get("layer", "combined")
+    if chosen not in ("source", "databricks", "application", "combined", "lineage"):
+        return jsonify({"ok": False, "error": "Invalid layer."}), 400
+    layers = {}
+    for name in ("source", "databricks", "application", "combined", "lineage"):
+        with current_app.test_request_context(
+            "/api/schema-map?layer=" + name + "&include_unjoined=1&include_cross_app=1"
+        ):
+            result = schema_map_data()
+        if isinstance(result, tuple):
+            return result
+        layers[name] = result.get_json()
+    snapshot = {
+        "layers": layers,
+        "initial": {
+            "layer": chosen,
+            "application": request.args.get("application", ""),
+            "mode": request.args.get("mode", "detail"),
+        },
+    }
+    response = Response(export_html(snapshot), mimetype="text/html")
+    response.headers["Content-Disposition"] = 'attachment; filename="querybridge-schema-map.html"'
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
     return response
