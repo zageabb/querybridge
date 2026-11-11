@@ -195,7 +195,7 @@ def plan_import(conn, document):
 def apply_import(conn, document, timestamp):
     """Caller must run in a SQLite transaction; do not commit here."""
     preview = plan_import(conn, document)
-    definitions, links = normalise(document)
+    application, definitions, links = normalise(document)
     fields_by_table = {}
     table_ids = {}
     for name_key, entry in definitions.items():
