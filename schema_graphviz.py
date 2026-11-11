@@ -107,12 +107,12 @@ def dot_graph(payload, mode="overview", highlight_field=None):
             if a not in by_id or b not in by_id:
                 continue
             details = "; ".join(
-                f'{item["left_field"]} = {item["right_field"]} '
+                f'{item["left_field"]} {"→" if item.get("relationship_type") == "lineage" else "="} {item["right_field"]} '
                 f'({item["source"]})' for item in pair[:12]
             )
             count = len(pair)
             lines.append(
-                f'T{a} -- T{b} [label={dot_string(str(count) + " join" + ("s" if count != 1 else ""))}, '
+                f'T{a} -- T{b} [label={dot_string(str(count) + (" mapping" if pair[0].get("relationship_type") == "lineage" else " join") + ("s" if count != 1 else ""))}, '
                 f'tooltip={dot_string(details)}];'
             )
     else:
@@ -127,7 +127,7 @@ def dot_graph(payload, mode="overview", highlight_field=None):
             source = link.get("source") or "saved"
             confidence = link.get("confidence")
             tooltip = (
-                f'{title(by_id[left_id])}.{link["left_field"]} = '
+                f'{title(by_id[left_id])}.{link["left_field"]} {"→" if link.get("relationship_type") == "lineage" else "="} '
                 f'{title(by_id[right_id])}.{link["right_field"]}'
                 f' | source={source} | confidence={confidence} | {link.get("notes") or ""}'
             )
