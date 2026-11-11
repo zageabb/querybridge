@@ -11,44 +11,46 @@ import sqlite3
 from flask import jsonify, request
 
 
+def ensure_schema(conn):
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS qb_layer_objects (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL CHECK(kind IN ('databricks','application')),
+        application_name TEXT NOT NULL,
+        object_name TEXT NOT NULL,
+        catalog TEXT NOT NULL DEFAULT '',
+        schema_name TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        UNIQUE(kind, application_name, catalog, schema_name, object_name)
+    );
+    CREATE TABLE IF NOT EXISTS qb_layer_fields (
+        id INTEGER PRIMARY KEY,
+        object_id INTEGER NOT NULL REFERENCES qb_layer_objects(id) ON DELETE CASCADE,
+        field_name TEXT NOT NULL,
+        data_type TEXT,
+        expression TEXT NOT NULL DEFAULT '',
+        ordinal_position INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(object_id, field_name)
+    );
+    CREATE TABLE IF NOT EXISTS qb_layer_lineage (
+        id INTEGER PRIMARY KEY,
+        target_field_id INTEGER NOT NULL REFERENCES qb_layer_fields(id) ON DELETE CASCADE,
+        source_column_id INTEGER REFERENCES qb_columns(id) ON DELETE CASCADE,
+        upstream_field_id INTEGER REFERENCES qb_layer_fields(id) ON DELETE CASCADE,
+        notes TEXT NOT NULL DEFAULT '',
+        CHECK ((source_column_id IS NOT NULL) != (upstream_field_id IS NOT NULL)),
+        UNIQUE(target_field_id,source_column_id),
+        UNIQUE(target_field_id,upstream_field_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_qb_layer_lineage_source ON qb_layer_lineage(source_column_id);
+    CREATE INDEX IF NOT EXISTS idx_qb_layer_lineage_upstream ON qb_layer_lineage(upstream_field_id);
+    """)
+
+
+
 def install(bp, db, now):
     """Register endpoints on the existing Admin blueprint (and its CSRF guard)."""
-
-    def ensure(conn):
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS qb_layer_objects (
-            id INTEGER PRIMARY KEY,
-            kind TEXT NOT NULL CHECK(kind IN ('databricks','application')),
-            application_name TEXT NOT NULL,
-            object_name TEXT NOT NULL,
-            catalog TEXT NOT NULL DEFAULT '',
-            schema_name TEXT NOT NULL DEFAULT '',
-            description TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL,
-            UNIQUE(kind, application_name, catalog, schema_name, object_name)
-        );
-        CREATE TABLE IF NOT EXISTS qb_layer_fields (
-            id INTEGER PRIMARY KEY,
-            object_id INTEGER NOT NULL REFERENCES qb_layer_objects(id) ON DELETE CASCADE,
-            field_name TEXT NOT NULL,
-            data_type TEXT,
-            expression TEXT NOT NULL DEFAULT '',
-            ordinal_position INTEGER NOT NULL DEFAULT 0,
-            UNIQUE(object_id, field_name)
-        );
-        CREATE TABLE IF NOT EXISTS qb_layer_lineage (
-            id INTEGER PRIMARY KEY,
-            target_field_id INTEGER NOT NULL REFERENCES qb_layer_fields(id) ON DELETE CASCADE,
-            source_column_id INTEGER REFERENCES qb_columns(id) ON DELETE CASCADE,
-            upstream_field_id INTEGER REFERENCES qb_layer_fields(id) ON DELETE CASCADE,
-            notes TEXT NOT NULL DEFAULT '',
-            CHECK ((source_column_id IS NOT NULL) != (upstream_field_id IS NOT NULL)),
-            UNIQUE(target_field_id,source_column_id),
-            UNIQUE(target_field_id,upstream_field_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_qb_layer_lineage_source ON qb_layer_lineage(source_column_id);
-        CREATE INDEX IF NOT EXISTS idx_qb_layer_lineage_upstream ON qb_layer_lineage(upstream_field_id);
-        """)
 
     def bad(message, status=400):
         return jsonify({"ok": False, "error": message}), status
@@ -75,7 +77,7 @@ def install(bp, db, now):
     def get_layers():
         conn = db()
         try:
-            ensure(conn)
+            ensure_schema(conn)
             objects = [dict(row) for row in conn.execute(
                 "SELECT * FROM qb_layer_objects ORDER BY kind,application_name,object_name"
             )]
@@ -119,7 +121,7 @@ def install(bp, db, now):
             description = string(payload.get("description"),"Description",2000)
             conn = db()
             try:
-                ensure(conn)
+                ensure_schema(conn)
                 with conn:
                     cursor = conn.execute(
                         """INSERT INTO qb_layer_objects
@@ -144,7 +146,7 @@ def install(bp, db, now):
             expression = string(payload.get("expression"),"Transformation",2000)
             conn = db()
             try:
-                ensure(conn)
+                ensure_schema(conn)
                 with conn:
                     obj = conn.execute("SELECT id FROM qb_layer_objects WHERE id=?",(object_id,)).fetchone()
                     if not obj:
@@ -179,7 +181,7 @@ def install(bp, db, now):
             notes = string(payload.get("notes"),"Notes",2000)
             conn = db()
             try:
-                ensure(conn)
+                ensure_schema(conn)
                 with conn:
                     target_row = conn.execute(
                         """SELECT f.id,o.kind FROM qb_layer_fields f
@@ -259,7 +261,7 @@ def install(bp, db, now):
                                 "fields":sum(len(x[5]) for x in planned),"preview":True})
             conn=db()
             try:
-                ensure(conn)
+                ensure_schema(conn)
                 with conn:
                     for kind,app,name,catalog,schema,fields in planned:
                         conn.execute(
@@ -291,7 +293,7 @@ def install(bp, db, now):
     def delete_object(object_id):
         conn=db()
         try:
-            ensure(conn)
+            ensure_schema(conn)
             with conn:
                 row=conn.execute("SELECT id FROM qb_layer_objects WHERE id=?",(object_id,)).fetchone()
                 if not row:

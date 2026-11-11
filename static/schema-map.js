@@ -2,6 +2,7 @@
   "use strict";
   const el = id => document.getElementById(id);
   const app = el("map-application");
+  const layer = el("map-layer");
   const focus = el("map-focus");
   const view = el("map-view");
   const unjoined = el("map-unjoined");
@@ -33,6 +34,7 @@
   function parameters(includeEverything, includeFocus, includeMode) {
     const args = new URLSearchParams();
     if (app.value) args.set("application", app.value);
+    args.set("layer",layer.value);
     if (includeEverything || unjoined.checked) args.set("include_unjoined", "1");
     if (external.checked) args.set("include_cross_app", "1");
     if (includeFocus && focus.value) args.set("focus_table", focus.value);
@@ -82,7 +84,7 @@
     const cards = [
       ["Tables in filter", graph.stats.in_application],
       ["Tables drawn", graph.stats.shown_tables],
-      ["Joins drawn", graph.stats.shown_joins],
+      [layer.value === "source" ? "Joins drawn" : "Lineage mappings", graph.stats.shown_joins],
       ["Unjoined in filter", graph.stats.unjoined_in_application],
       ["Other applications", graph.stats.cross_application_tables],
     ];
@@ -142,7 +144,7 @@
       const b = graph.tables.find(t => t.id === link.right_table_id);
       if (!a || !b) return;
       const button = linkButton(
-        a.table_name + "." + link.left_field + " = " + b.table_name + "." + link.right_field,
+        a.table_name + "." + link.left_field + (link.relationship_type === "lineage" ? " → " : " = ") + b.table_name + "." + link.right_field,
         () => {
           view.value = "detail";
           field.value = String(link.left_column_id);
@@ -152,7 +154,7 @@
       );
       button.append(elText("small",
         (link.source || "saved") + " · " +
-        Math.round(Number(link.confidence || 0) * 100) + "%" +
+        (link.relationship_type === "lineage" ? "recorded mapping" : Math.round(Number(link.confidence || 0) * 100) + "%") +
         (link.notes ? " · " + link.notes : "")));
       joinedRoot.append(button);
     });
@@ -232,8 +234,9 @@
     fillFields(graph);
     stats(graph);
     renderLists(graph);
-    el("map-title").textContent = view.value === "detail"
-      ? "Detailed table and field relationships" : "Table relationship overview";
+    el("map-title").textContent = layer.value === "source" ? (view.value === "detail"
+      ? "Detailed table and field relationships" : "Table relationship overview") :
+      (layer.options[layer.selectedIndex].text + " · " + (view.value === "detail" ? "fields" : "objects"));
     state.mermaid = view.value === "detail" ? renderer.detailed(graph) : renderer.overview(graph);
     el("map-source").textContent = state.mermaid;
     await renderGraph(revision);
@@ -253,6 +256,12 @@
     download(url, "querybridge-schema.mmd");
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
+  layer.addEventListener("change", () => {
+    app.value = ""; focus.value = ""; field.value = "";
+    unjoined.checked = true;
+    external.checked = false;
+    reload().catch(showError);
+  });
   view.addEventListener("change", () => { field.value = ""; reload().catch(showError); });
   app.addEventListener("change", () => { focus.value = ""; field.value = ""; reload().catch(showError); });
   focus.addEventListener("change", () => { field.value = ""; reload().catch(showError); });
@@ -264,7 +273,7 @@
   el("map-zoom-out").addEventListener("click", () => { state.zoom = Math.max(0.08, state.zoom / 1.25); applyZoom(); });
   el("map-zoom-reset").addEventListener("click", fitZoom);
   el("map-reset").addEventListener("click", () => {
-    app.value = ""; focus.value = ""; view.value = "overview"; field.value = "";
+    layer.value = "source"; app.value = ""; focus.value = ""; view.value = "overview"; field.value = "";
     unjoined.checked = false; external.checked = false;
     el("map-table-search").value = "";
     reload().catch(showError);

@@ -41,7 +41,35 @@
         </div>
     </section>
 
-    <div class="catalogue-layout">
+    <section class="panel" style="padding:16px;margin-bottom:16px">
+      <label for="explorer-layer">Data layer
+        <select id="explorer-layer">
+          <option value="source">Source dictionaries</option>
+          <option value="databricks">Databricks selections</option>
+          <option value="application">Application consumption</option>
+          <option value="lineage">End-to-end lineage</option>
+        </select>
+      </label>
+      <p class="muted">The source view shows the complete captured dictionary. Other views show only explicitly selected fields and recorded lineage, not inferred joins.</p>
+    </section>
+    <section id="explorer-layer-panel" class="panel" hidden style="padding:16px;margin-bottom:16px">
+      <div class="catalogue-filterbar">
+        <label for="explorer-layer-application">Consuming application
+          <select id="explorer-layer-application"><option value="">All applications</option></select>
+        </label>
+        <label for="explorer-layer-search">Search selected fields
+          <input id="explorer-layer-search" type="search" placeholder="Object, source, field or transformation">
+        </label>
+      </div>
+      <p id="explorer-layer-status" class="muted" role="status"></p>
+      <div class="catalogue-table-wrap">
+        <table class="catalogue-table" aria-label="Application layer fields">
+          <thead><tr><th>Layer</th><th>Application</th><th>Object</th><th>Field</th><th>Type</th><th>Upstream lineage</th></tr></thead>
+          <tbody id="explorer-layer-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <div class="catalogue-layout" id="explorer-source-panel">
         <section class="catalogue-main panel" aria-label="Search and browse schema">
             <div class="catalogue-filterbar">
                 <label for="catalogue-search">Search everything
@@ -90,6 +118,7 @@
         </aside>
     </div>
 </main>
+<script src="{{ url_for('static', filename='layer-explorer.js') }}" defer></script>
 
 <script>
 (() => {

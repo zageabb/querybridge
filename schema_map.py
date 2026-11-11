@@ -33,6 +33,9 @@ def as_bool(value):
 @bp.get("/api/schema-map")
 def schema_map_data():
     application = (request.args.get("application") or "").strip()
+    layer = (request.args.get("layer") or "source").strip()
+    if layer not in ("source","databricks","application","lineage"):
+        return jsonify({"ok":False,"error":"Invalid layer."}),400
     include_unjoined = as_bool(request.args.get("include_unjoined"))
     include_cross_app = as_bool(request.args.get("include_cross_app"))
     focus_raw = (request.args.get("focus_table") or "").strip()
@@ -45,6 +48,12 @@ def schema_map_data():
 
     conn = _database()
     try:
+        if layer != "source":
+            from layer_graph import graph
+            try:
+                return jsonify(graph(conn,layer,application,focus_id,include_unjoined))
+            except ValueError as exc:
+                return jsonify({"ok":False,"error":str(exc)}),400
         all_tables = [
             dict(r) for r in conn.execute(
                 """SELECT t.id, t.catalog, t.schema_name, t.table_name,
