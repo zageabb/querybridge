@@ -29,7 +29,7 @@ button{cursor:pointer}button:hover{background:#354b60}.check{flex-direction:row;
 .meta{color:#c2d3e0;font-size:11px;padding:8px}.edges{stroke:#7ab4df;stroke-width:2;fill:none}.edges.active{stroke:#ffd166;stroke-width:4}.edges.lineage{stroke:#15a1b7;stroke-dasharray:6 4}.node.db{border-color:#188cb7}.node.ui{border-color:#996ed0}
 #help{position:absolute;bottom:12px;left:15px;background:#14212ae8;padding:9px 12px;border-radius:7px;font-size:11px;color:#c7d6e2;pointer-events:none}
 </style></head><body>
-<header><h1>QueryBridge · Standalone Schema Map</h1><p>Read-only metadata snapshot · no live data access · works offline · click table headers to expand/collapse fields, click fields to highlight recorded joins</p></header>
+<header><h1>QueryBridge · Standalone Schema Map</h1><p id="scope-banner"></p><p>Read-only metadata snapshot · no live data access · works offline · click table headers to expand/collapse fields, click fields to highlight recorded joins</p></header>
 <div class="toolbar">
 <label>Data layer<select id="layer"><option value="source">Source dictionaries</option><option value="databricks">Databricks selections</option><option value="application">Application consumption</option><option value="combined">Databricks + Application (UI)</option><option value="lineage">End-to-end lineage</option></select></label>
 <label>Application<select id="application"></select></label>
@@ -50,6 +50,8 @@ button{cursor:pointer}button:hover{background:#354b60}.check{flex-direction:row;
 const snapshot=JSON.parse(document.getElementById("snapshot").textContent);
 const $=id=>document.getElementById(id);
 let graph={tables:[],relationships:[]},tables=[],links=[],byId=new Map();
+$("scope-banner").textContent="Export scope: "+(snapshot.scope||"all captured layers");
+for(const option of $("layer").options){option.disabled=!Object.prototype.hasOwnProperty.call(snapshot.layers,option.value)}
 let zoom=1,panX=24,panY=24,selected="",opened=new Set(),rendered=[],positions=new Map();
 const opt=(select,value,label)=>{const o=document.createElement("option");o.value=String(value);o.textContent=label;select.append(o)};
 const fullName=t=>[t.catalog,t.schema_name,t.table_name].filter(Boolean).join(".");
