@@ -248,7 +248,7 @@ def apply_import(conn, document, timestamp):
             conn.execute(
                 """INSERT INTO qb_relationships
                    (left_table_id,left_column_id,right_table_id,right_column_id,confidence,source,notes)
-                   VALUES (?,?,?,?,?,'relationship-import',?)""",
-                (left_tid, left_fid, right_tid, right_fid, link["confidence"], link["reason"]),
+                   VALUES (?,?,?,?,?,?,?)""",
+                (left_tid, left_fid, right_tid, right_fid, link["confidence"],\n                 "sap-import" if document.get("format") == FORMAT else "relationship-import", link["reason"]),
             )
     return preview
