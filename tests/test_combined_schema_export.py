@@ -122,3 +122,19 @@ def test_combined_visible_in_live_schema_map_and_rejects_invalid_export_layer(cl
     assert b"Databricks + Application (UI)" in page.data
     assert b"Export Interactive HTML" in page.data
     assert client.get("/api/schema-map/export-html?layer=invalid").status_code == 400
+
+
+def test_current_view_export_is_explicitly_scoped(client):
+    response = client.get(
+        "/api/schema-map/export-html?subset=1&layer=combined&application=TAIJU"
+    )
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    match = re.search(r'<script type="application/json" id="snapshot">(.*?)</script>', page, re.S)
+    assert match
+    snap = json.loads(match.group(1))
+    assert snap["scope"] == "selected view only"
+    assert set(snap["layers"]) == {"combined"}
+    assert all(t["application_name"] == "TAIJU"
+               for t in snap["layers"]["combined"]["tables"])
+    assert b"Export current view HTML" in client.get("/schema-map").data
