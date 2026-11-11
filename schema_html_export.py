@@ -349,6 +349,19 @@ function draw(){
    positions.set(id,position);
    bindTableDrag(head,node,position,id);
  }
+ // Reconcile estimated row heights with actual rendered HTML (long names,
+ // descriptions and wrapping can make cards taller than the metadata estimate).
+ const bottoms=new Map();
+ for(const item of nodes){
+   const p=positions.get(String(item.t.id)),column=Math.round(p.x);
+   const manual=manualPositions.has($("layer").value+":"+item.t.id);
+   if(!manual && bottoms.has(column) && p.y<bottoms.get(column)+45){
+     p.y=bottoms.get(column)+45;
+     p.node.style.top=p.y+"px";
+   }
+   p.h=p.node.offsetHeight;
+   bottoms.set(column,Math.max(bottoms.get(column)||0,p.y+p.h));
+ }
  drawEdges();refreshFields(items);
  $("stats").textContent=items.length+" tables · "+
    links.filter(l=>positions.has(String(l.left_table_id))&&positions.has(String(l.right_table_id))).length+
