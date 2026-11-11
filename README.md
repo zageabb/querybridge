@@ -676,7 +676,7 @@ remain available in the End-to-end view and are not shown by default in the
 combined view. A field's application data-model name is displayed as recorded:
 screen/control labels are **not inferred** if not supplied in metadata.
 
-Select **Export Interactive HTML** on Schema Map to download a standalone
+Select **Export Interactive HTML** for all captured schema layers, or\n**Export current view HTML** to save only the filtered layer/application/focus\nscope. Omitted metadata cannot be retrieved when viewing offline. Download a standalone
 read-only HTML snapshot with all five data-layer choices and embedded tables,
 fields and links. The saved file can be explored offline using application,
 focus, search, overview/detail, show-unjoined and cross-application controls;
