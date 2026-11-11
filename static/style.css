@@ -1151,6 +1151,10 @@ body.resizing-panes {
 .sap-import-counts { padding: 10px 14px; font-weight: 700; background: #eff6ff; border: 1px solid #d0e3ff; border-radius: 8px; }
 
 
+/* The HTML hidden attribute must win over the explicit iframe/img display rules.
+   Otherwise the interactive iframe stays visible when Graphviz is selected. */
+.schema-map-stage [hidden] { display: none !important; }
+
 /* Notes-inspired theme preference: scoped to Schema Map to avoid unexpected
    changes to unrelated QueryBridge pages. Interactive iframe has matching tokens. */
 .schema-map-display-controls { display:flex;align-items:center;flex-wrap:wrap;gap:12px; }

@@ -207,3 +207,26 @@ def test_overview_and_detail_modes_apply_to_all_four_layers(client):
                 assert 'PORT="f' in dot, layer
             if layer == 'databricks':
                 assert 'edp.scm.orders_view' in dot
+
+
+def test_canvas_switch_preserves_original_graphviz_visibility_contract(client):
+    """Interactive iframe must not occlude the original Graphviz canvas."""
+    browser, _, _ = client
+    page = browser.get("/schema-map")
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert 'value="interactive"' in html
+    assert 'value="graphviz"' in html
+    assert 'id="map-interactive-frame"' in html
+    assert 'id="map-diagram"' in html
+
+    stylesheet = browser.get("/static/style.css").get_data(as_text=True)
+    assert ".schema-map-stage [hidden] { display: none !important; }" in stylesheet
+    assert '#map-interactive-frame { display:block' in stylesheet
+
+    javascript = browser.get("/static/schema-map.js").get_data(as_text=True)
+    assert 'interactiveFrame.hidden=!interactive;' in javascript
+    assert 'el("map-diagram").hidden=interactive;' in javascript
+    assert 'canvasRenderer.addEventListener("change"' in javascript
+    assert 'interactiveFrame.setAttribute("aria-hidden","true")' in javascript
+    assert 'el("map-diagram").removeAttribute("aria-hidden")' in javascript
