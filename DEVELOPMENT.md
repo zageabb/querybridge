@@ -567,3 +567,19 @@ Completion criteria:
 - [ ] UDA CI green
 - [ ] Merged to main
 - [ ] Manual test of representative complex TAIJU mapped schema
+
+
+### DEV-018 — Notes-style themes and a draggable live Schema Map
+
+Status: IMPLEMENTED ON FEATURE BRANCH — CI AND USER ACCEPTANCE PENDING
+Priority: High
+Branch: feature/schema-map-live-interactive-themes
+Depends on: DEV-017 merged Graphviz-quality offline HTML renderer
+Requirement: Give both QueryBridge and its exported schema viewer persistent light/dark themes like Notes; allow moving tables and rerouting links in both the live map and export.
+Implementation: Shared `static/theme.js` and dark CSS palette across QueryBridge pages; themed self-contained offline HTML; live Schema Map switch between draggable embedded offline-renderer engine and original Graphviz output; same recorded field-to-field mappings and filters; saved positions and reset.
+Evidence: `tests/test_combined_schema_export.py` includes theme and embedded view coverage; automated CI pending.
+Completion criteria:
+- [x] Code and tests added
+- [ ] Full CI green
+- [ ] Merged main
+- [ ] Manually verified in light/dark and live/standalone views

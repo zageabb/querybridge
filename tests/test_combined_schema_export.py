@@ -185,3 +185,92 @@ def test_graphviz_layout_no_network_or_script_injection():
     positions = graphviz_layout(graph)
     assert not positions or set(positions) == {"1", "2"}
     # Graphviz only sees numeric local IDs; captured table names are never DOT input.
+
+
+def test_live_interactive_schema_renderer_and_theme_controls(client):
+    response = client.get("/schema-map")
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert 'id="map-renderer"' in page
+    assert 'value="interactive"' in page
+    assert 'value="graphviz"' in page
+    assert 'id="map-theme-toggle"' in page
+    assert 'id="map-interactive-frame"' in page
+
+
+def test_live_inline_export_and_saved_theme_toggle(client):
+    response = client.get(
+        "/api/schema-map/export-html?inline=1&subset=1&layer=combined&theme=dark"
+    )
+    assert response.status_code == 200
+    assert response.headers["Content-Disposition"].startswith("inline;")
+    assert "frame-ancestors 'self'" in response.headers["Content-Security-Policy"]
+    page = response.get_data(as_text=True)
+    assert 'id="theme-toggle"' in page
+    assert 'querybridge.theme' in page
+    assert 'data-theme="dark"' in page or 'setTheme(snapshot.initial' in page
+    assert 'function bindTableDrag(' in page
+    assert 'function routedPath(' in page
+
+
+def test_default_export_still_downloads_independent_html(client):
+    response = client.get("/api/schema-map/export-html?subset=1&layer=combined")
+    assert response.status_code == 200
+    assert response.headers["Content-Disposition"].startswith("attachment;")
+    html = response.get_data(as_text=True)
+    assert "--panel:" in html
+    assert 'id="theme-toggle"' in html
+    assert "<script" in html
+
+
+def test_live_and_standalone_theme_modes_and_draggable_view(client):
+    from pathlib import Path
+    live = client.get("/schema-map")
+    assert live.status_code == 200
+    page = live.get_data(as_text=True)
+    assert 'id="map-theme-toggle"' in page
+    assert 'id="map-renderer"' in page
+    assert 'value="interactive"' in page
+    assert 'value="graphviz"' in page
+    assert 'id="map-interactive-frame"' in page
+    assert "theme.js" in page
+
+    embedded = client.get(
+        "/api/schema-map/export-html?inline=1&embedded=1&subset=1&layer=source&theme=dark"
+    )
+    assert embedded.status_code == 200
+    assert embedded.headers["Content-Disposition"].startswith("inline")
+    assert "frame-ancestors 'self'" in embedded.headers["Content-Security-Policy"]
+    html = embedded.get_data(as_text=True)
+    assert 'id="theme-toggle"' in html
+    assert 'id="reset-positions"' in html
+    assert 'querybridge.theme' in html
+    assert 'querybridge.schema.map.positions.v1' in html
+    assert 'data-embedded="true"' in html or 'dataset.embedded' in html
+    assert '--bg:#f4f7fb' in html
+    assert '--bg:#101820' in html
+    match = re.search(r'<script type="application/json" id="snapshot">(.*?)</script>', html, re.S)
+    assert match
+    initial = json.loads(match.group(1))["initial"]
+    assert initial["theme"] == "dark"
+    assert initial["embedded"] is True
+
+    download = client.get("/api/schema-map/export-html?layer=source&theme=light")
+    assert download.headers["Content-Disposition"].startswith("attachment")
+    assert json.loads(re.search(
+        r'<script type="application/json" id="snapshot">(.*?)</script>',
+        download.get_data(as_text=True), re.S
+    ).group(1))["initial"]["embedded"] is False
+
+
+def test_shared_notes_style_theme_asset_is_available(client):
+    response=client.get("/static/theme.js")
+    assert response.status_code == 200
+    script=response.get_data(as_text=True)
+    assert "querybridge.theme" in script
+    assert "localStorage" in script
+    assert "data-theme" in script or "dataset.theme" in script
+    for url in ("/", "/catalogue", "/schema-map"):
+        page=client.get(url)
+        assert page.status_code == 200
+        assert "theme.js" in page.get_data(as_text=True)

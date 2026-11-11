@@ -265,10 +265,13 @@ def export_standalone_html():
             "layer": chosen,
             "application": request.args.get("application", ""),
             "mode": request.args.get("mode", "detail"),
+            "theme": "dark" if request.args.get("theme") == "dark" else "light",
+            "embedded": request.args.get("embedded") == "1",
         },
     }
     response = Response(export_html(snapshot), mimetype="text/html")
-    response.headers["Content-Disposition"] = 'attachment; filename="querybridge-schema-map.html"'
+    response.headers["Content-Disposition"] = ('inline' if request.args.get("inline") == "1" else 'attachment') + '; filename="querybridge-schema-map.html"'
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'"
     return response
