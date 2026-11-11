@@ -6,6 +6,7 @@
   const focus = el("map-focus");
   const view = el("map-view");
   const unjoined = el("map-unjoined");
+  const descriptions = el("map-descriptions");
   const external = el("map-external");
   const field = el("map-field");
   const stage = el("map-stage");
@@ -35,6 +36,7 @@
     const args = new URLSearchParams();
     if (app.value) args.set("application", app.value);
     args.set("layer",layer.value);
+    if (descriptions.checked) args.set("show_descriptions","1");
     if (includeEverything || unjoined.checked) args.set("include_unjoined", "1");
     if (external.checked) args.set("include_cross_app", "1");
     if (includeFocus && focus.value) args.set("focus_table", focus.value);
@@ -269,6 +271,7 @@
   });
   app.addEventListener("change", () => { focus.value = ""; field.value = ""; reload().catch(showError); });
   focus.addEventListener("change", () => { field.value = ""; reload().catch(showError); });
+  descriptions.addEventListener("change", () => renderGraph(++state.revision).catch(showError));
   unjoined.addEventListener("change", () => reload().catch(showError));
   external.addEventListener("change", () => { focus.value = ""; reload().catch(showError); });
   field.addEventListener("change", () => renderGraph(++state.revision).catch(showError));
@@ -278,7 +281,7 @@
   el("map-zoom-reset").addEventListener("click", fitZoom);
   el("map-reset").addEventListener("click", () => {
     layer.value = "source"; app.value = ""; focus.value = ""; view.value = "overview"; field.value = "";
-    unjoined.checked = false; external.checked = false;
+    unjoined.checked = false; external.checked = false; descriptions.checked = false;
     el("map-table-search").value = "";
     reload().catch(showError);
   });
