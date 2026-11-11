@@ -719,3 +719,10 @@ The active layer and application filter are selected when the export opens.
 ### Graphviz-quality links in standalone HTML
 
 The interactive HTML export now uses Graphviz's `dot -Tplain` algorithm at export time to determine table ranks and relationship-aware ordering. The output remains a **single standalone HTML5 file**: semantic HTML cards display fields and descriptions while an SVG overlay renders rounded orthogonal field-to-field connectors, with directional arrows for lineage. The file does **not** require Graphviz, JavaScript packages, a network connection or a server to view. Moving a table by dragging its header, expanding/collapsing a table or changing filters immediately recalculates its connectors in the browser; pan, zoom and field highlight still work. When Graphviz is missing during export, the viewer uses a fallback automatic layout.
+
+
+## Light and dark themes and interactive live schema canvas
+
+QueryBridge now follows the Notes application theme pattern: the top bar's **Light mode / Dark mode** button switches the application palette and stores the choice in `localStorage` under `querybridge.theme`. The theme is shared by QueryBridge's pages and does not require a server setting. The original light interface remains the default.
+
+Schema Map also provides **Canvas: Interactive · move tables / Graphviz · original**. Interactive mode displays the same HTML5/SVG viewer as the offline export inside the live Schema Map, including draggable table headers, automatic field-to-field connector rerouting, zoom/pan, field descriptions and field highlighting. Positions are saved locally per data layer under `querybridge.schema.map.positions.v1` and can be cleared with **Reset positions**. Graphviz mode retains the previous server-rendered diagram and its zoom controls. Both the live viewer and standalone exported HTML contain light/dark controls; the export works offline without a server or API. No schema records are modified by moving a visual table.
