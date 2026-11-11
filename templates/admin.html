@@ -122,7 +122,7 @@
     <section class="panel sap-import-panel" id="sap-ddic-import">
         <div class="admin-section-header">
             <div>
-                <h2>SAP S/4HANA full dictionary import</h2>
+                <h2>Full Dictionary Import</h2>
                 <p>Bulk load table names, field names, data types and descriptions into QueryBridge's working metadata.</p>
             </div>
             <a class="secondary small" href="{{ url_for('admin.sap_ddic_query') }}" download="export_sap_ddic_hana.sql">Download SAP export SQL</a>
@@ -137,6 +137,9 @@
         </div>
         <p><strong>Preview (Ubuntu CLI):</strong></p>
         <pre>python scripts/import_sap_ddic.py sap_ddic.csv --db instance/querybridge.db</pre>
+        <p><strong>Other source applications:</strong> Use the same CSV headers (TABLE_NAME, FIELD_NAME, optional DATA_TYPE, descriptions, POSITION) and specify an application. The SAP export SQL above remains SAP-specific.</p>
+        <pre>python scripts/import_sap_ddic.py source_dictionary.csv --application "Procure" --db instance/querybridge.db</pre>
+        <pre>python scripts/import_sap_ddic.py source_dictionary.csv --application "Procure" --db instance/querybridge.db --apply</pre>
         <p><strong>Apply after reviewing:</strong></p>
         <pre>python scripts/import_sap_ddic.py sap_ddic.csv --db instance/querybridge.db --apply</pre>
         <p class="muted">Use this full CSV importer for large metadata exports. Use the separate JSON import below for reviewed field-to-field SAP relationships.</p>
@@ -144,19 +147,19 @@
     <section class="panel sap-import-panel" id="sap-link-import">
         <div class="admin-section-header">
             <div>
-                <h2>SAP S/4HANA relationship import</h2>
-                <p>Load a JSON list of SAP tables, fields and relationships into the current local subset.</p>
+                <h2>Relationship Import</h2>
+                <p>Import reviewed relationships for SAP or another application. Generic files use format querybridge-links version 1 and an application name.</p>
             </div>
             <a href="{{ url_for('admin.sap_links_template') }}" download="sap_s4hana_links_template.json" class="secondary small">Download starter JSON</a>
         </div>
         <div class="admin-warning">
             <strong>Additive and local only.</strong>
             The preview will identify missing tables, fields and joins. New tables will be
-            marked <strong>SAP S/4HANA</strong> and will have no Catalog or Schema assigned.
+            marked with the selected source application and will have no Catalog or Schema assigned.
             Existing metadata is left unchanged. No schema snapshot is saved or overwritten.
-            Review the sample SAP joins before importing, including any client (MANDT) conditions.
+            Review every imported join. The SAP starter file uses the legacy SAP format; see README for a generic example.
         </div>
-        <label>Choose SAP relationships JSON file
+        <label>Choose relationship JSON file
             <input type="file" id="sap-import-file" accept=".json,application/json">
         </label>
         <div class="admin-actions">
@@ -176,9 +179,47 @@
             <p id="sap-import-existing" class="muted"></p>
         </div>
     </section>
+
+    <section class="panel sap-import-panel" id="application-layers">
+      <div class="admin-section-header">
+        <div><h2>Application Data Layers</h2><p>Map source dictionaries to Databricks objects, then expose only the fields consumed by an application such as TAIJU. This is local metadata only.</p></div>
+      </div>
+      <div class="admin-warning">Source → Databricks → Application. Multiple source fields may feed a derived Databricks field. Mappings do not change source tables or run SQL.</div>
+      <h3>1. Create a Databricks or application object</h3>
+      <form id="layer-add-object" class="admin-layer-form">
+        <label>Layer <select name="kind" required><option value="databricks">Databricks</option><option value="application">Application consumption</option></select></label>
+        <label>Application name <input name="application_name" value="TAIJU" required maxlength="120"></label>
+        <label>Table / view name <input name="object_name" required maxlength="200"></label>
+        <label>Catalog (optional) <input name="catalog" maxlength="200"></label>
+        <label>Schema (optional) <input name="schema_name" maxlength="200"></label>
+        <button class="primary" type="submit">Add object</button>
+      </form>
+      <h3>2. Add only the exposed fields</h3>
+      <form id="layer-add-field" class="admin-layer-form">
+        <label>Layer object <select name="object_id" id="layer-object" required></select></label>
+        <label>Exposed field name <input name="field_name" required maxlength="200"></label>
+        <label>Type <input name="data_type" maxlength="200"></label>
+        <label>Expression / transformation <input name="expression" maxlength="2000" placeholder="Optional: documented SQL expression"></label>
+        <button class="primary" type="submit">Add selected field</button>
+      </form>
+      <h3>3. Link fields for lineage</h3>
+      <form id="layer-add-lineage" class="admin-layer-form">
+        <label>Target field <select id="layer-target" required></select></label>
+        <label>Source dictionary or Databricks field <select id="layer-source" required></select></label>
+        <button class="primary" type="submit">Connect fields</button>
+      </form>
+      <h3>Import a selected field list</h3>
+      <p class="muted">Supports additive JSON file imports using format <code>querybridge-application-layer</code>, version 1. Review the preview before importing.</p>
+      <input type="file" id="layer-import-file" accept=".json,application/json" aria-label="Application layer JSON file">
+      <button type="button" id="layer-import" class="secondary">Preview and import</button>
+      <p id="layer-status" class="muted" role="status" aria-live="polite"></p>
+      <h3>Configured layer objects</h3>
+      <div id="layer-objects"></div>
+    </section>
     <script>window.querybridgeAdminToken = {{ csrf_token | tojson }};</script>
     <script src="{{ url_for('static', filename='admin.js') }}"></script>
     <script src="{{ url_for('static', filename='sap-links.js') }}"></script>
+    <script src="{{ url_for('static', filename='application-layers.js') }}"></script>
 </main>
 </body>
 </html>

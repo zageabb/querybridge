@@ -78,13 +78,13 @@ def rows_grouped(path, include_custom=False):
         yield rows
 
 
-def table_matches(table_cache, name):
+def table_matches(table_cache, name, application=APPLICATION):
     matches = table_cache.get(name.casefold(), [])
     if len(matches) <= 1:
         return matches[0] if matches else None
     preferred = [
         x for x in matches
-        if (x["application_name"] or "").casefold() == APPLICATION.casefold()
+        if (x["application_name"] or "").casefold() == application.casefold()
     ]
     if len(preferred) == 1:
         return preferred[0]
@@ -100,7 +100,7 @@ def name_for_ddic(table, prefix):
     return prefix + table.lower() if prefix else table
 
 
-def run_import(conn, path, prefix="sap_", apply=False, include_custom=False):
+def run_import(conn, path, prefix="sap_", apply=False, include_custom=False, application=APPLICATION):
     cols = {row[1] for row in conn.execute("PRAGMA table_info(qb_tables)")}
     if "description" not in cols:
         raise ValueError("Run updated QueryBridge once first: qb_tables.description migration missing.")
@@ -115,7 +115,9 @@ def run_import(conn, path, prefix="sap_", apply=False, include_custom=False):
     for entries in rows_grouped(path, include_custom):
         sap_name = entries[0]["TABLE_NAME"]
         table_name = name_for_ddic(sap_name, prefix)
-        item = table_matches(table_cache, table_name)
+        item = table_matches(table_cache, table_name, application)
+        if item is not None and item["application_name"] not in (None, "", application):
+            raise ValueError(f"Table {table_name} already belongs to {item['application_name']}")
         table_desc = next((text(r.get("TABLE_DESCRIPTION"), 1000)
                            for r in entries if text(r.get("TABLE_DESCRIPTION"))), None)
         if item is None:
@@ -126,12 +128,12 @@ def run_import(conn, path, prefix="sap_", apply=False, include_custom=False):
                        (catalog, schema_name, table_name, application_name, description,
                         table_type, captured_at, raw_source)
                        VALUES (NULL,NULL,?,?,?,'TABLE',?,'SAP DDIC CSV')""",
-                    (table_name, APPLICATION, table_desc, timestamp),
+                    (table_name, application, table_desc, timestamp),
                 )
                 table_id = cursor.lastrowid
                 table_cache[table_name.casefold()].append({
                     "id": table_id, "table_name": table_name,
-                    "application_name": APPLICATION, "description": table_desc,
+                    "application_name": application, "description": table_desc,
                 })
             else:
                 table_id = None
@@ -209,8 +211,13 @@ def main(argv=None):
     parser.add_argument("--db", type=Path, default=Path(__file__).resolve().parents[1] / "instance/querybridge.db")
     parser.add_argument("--prefix", default="sap_", help="Table prefix matching QueryBridge capture (default: sap_)")
     parser.add_argument("--include-custom", action="store_true", help="Include Y* and Z* customer tables")
+    parser.add_argument("--application", default=APPLICATION, help="Source application owning the tables (default: SAP S/4HANA)")
     parser.add_argument("--apply", action="store_true", help="Write to local QueryBridge DB; default dry run only")
     args = parser.parse_args(argv)
+    if not args.application.strip() or len(args.application) > 120:
+        parser.error("Application name must contain 1-120 characters.")
+    if args.application != APPLICATION and args.prefix == "sap_":
+        args.prefix = ""
     if not args.csv_file.is_file():
         parser.error("CSV file does not exist: " + str(args.csv_file))
     if not args.db.is_file():
@@ -222,13 +229,14 @@ def main(argv=None):
         conn.execute("BEGIN IMMEDIATE" if args.apply else "BEGIN")
         stats = run_import(
             conn, args.csv_file, prefix=args.prefix, apply=args.apply,
-            include_custom=args.include_custom,
+            include_custom=args.include_custom or args.application != APPLICATION,
+            application=args.application,
         )
         if args.apply:
             conn.commit()
         else:
             conn.rollback()
-        print(("APPLIED" if args.apply else "DRY RUN") + " SAP DDIC import:")
+        print(("APPLIED" if args.apply else "DRY RUN") + " " + args.application + " dictionary import:")
         for key in sorted(stats):
             print(f"  {key}: {stats[key]}")
         if not args.apply:

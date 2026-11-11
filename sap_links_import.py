@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 FORMAT = "querybridge-sap-links"
+GENERIC_FORMAT = "querybridge-links"
 APPLICATION = "SAP S/4HANA"
 MAX_TABLES = 250
 MAX_FIELDS = 1500
@@ -24,10 +25,11 @@ def clean(value, what, limit=200):
 
 
 def normalise(document):
-    if not isinstance(document, dict) or document.get("format") != FORMAT or document.get("format_version") != 1:
+    if not isinstance(document, dict) or document.get("format") not in (FORMAT, GENERIC_FORMAT) or document.get("format_version") != 1:
         raise ValueError("This is not a supported QueryBridge SAP links JSON file (format_version 1).")
-    if document.get("application") != APPLICATION:
-        raise ValueError("Application must be SAP S/4HANA for this importer.")
+    application = clean(document.get("application"), "Application", 120)
+    if document.get("format") == FORMAT and application != APPLICATION:
+        raise ValueError("Legacy SAP links files must use SAP S/4HANA. For other sources use querybridge-links.")
     tables = document.get("tables", [])
     links = document.get("links")
     if not isinstance(tables, list) or not isinstance(links, list):
@@ -91,28 +93,32 @@ def normalise(document):
         prepared_links.append({
             "left": endpoints[0], "right": endpoints[1],
             "confidence": float(confidence),
-            "reason": reason or "Imported from reviewed SAP S/4HANA relationship file.",
+            "reason": reason or "Imported from reviewed relationship file.",
         })
 
     if not prepared_links and not definitions:
         raise ValueError("The SAP links file contains no tables, fields or links.")
     if len(definitions) > MAX_TABLES or sum(len(x["fields"]) for x in definitions.values()) > MAX_FIELDS:
         raise ValueError("The imported SAP subset exceeds the table/field limit.")
-    return definitions, prepared_links
+    return application, definitions, prepared_links
 
 
-def select_table(conn, name):
+def select_table(conn, name, application=APPLICATION):
     matches = conn.execute(
         "SELECT id,table_name,application_name,catalog,schema_name FROM qb_tables WHERE lower(table_name)=lower(?) ORDER BY id",
         (name,),
     ).fetchall()
     if len(matches) == 1:
-        return matches[0]
+        existing = matches[0]
+        label = (existing["application_name"] or "").casefold()
+        if label and label != application.casefold():
+            raise ValueError(f"Table {name} belongs to another application: {existing['application_name']}")
+        return existing
     if not matches:
         return None
     labelled = [
         row for row in matches
-        if (row["application_name"] or "").casefold() == APPLICATION.casefold()
+        if (row["application_name"] or "").casefold() == application.casefold()
     ]
     if len(labelled) == 1:
         return labelled[0]
@@ -123,12 +129,12 @@ def select_table(conn, name):
 
 
 def plan_import(conn, document):
-    definitions, links = normalise(document)
+    application, definitions, links = normalise(document)
     table_ids = {}
     new_tables, new_fields, new_links, existing_links = [], [], [], []
     fields_by_table = {}
     for name_key, entry in definitions.items():
-        row = select_table(conn, entry["name"])
+        row = select_table(conn, entry["name"], application)
         table_ids[name_key] = row["id"] if row else None
         if row is None:
             new_tables.append(entry["name"])
@@ -167,7 +173,7 @@ def plan_import(conn, document):
         (existing_links if existing else new_links).append(rendered)
 
     return {
-        "application": APPLICATION,
+        "application": application,
         "new_tables": sorted(new_tables, key=str.casefold),
         "new_fields": sorted(new_fields, key=lambda x: (x["table"].casefold(), x["field"].casefold())),
         "new_links": new_links,
@@ -179,7 +185,7 @@ def plan_import(conn, document):
             "links_already_present": len(existing_links),
         },
         "note": (
-            "Missing tables will be added with SAP S/4HANA as Application and blank "
+            f"Missing tables will be added with {application} as Application and blank "
             "Catalog/Schema; missing fields have no invented type. Existing records "
             "are preserved. No named schema snapshot is created."
         ),
@@ -189,7 +195,7 @@ def plan_import(conn, document):
 def apply_import(conn, document, timestamp):
     """Caller must run in a SQLite transaction; do not commit here."""
     preview = plan_import(conn, document)
-    definitions, links = normalise(document)
+    application, definitions, links = normalise(document)
     fields_by_table = {}
     table_ids = {}
     for name_key, entry in definitions.items():
@@ -199,7 +205,7 @@ def apply_import(conn, document, timestamp):
                 """INSERT INTO qb_tables
                    (catalog,schema_name,table_name,application_name,table_type,captured_at)
                    VALUES (NULL,NULL,?,?,'TABLE',?)""",
-                (entry["name"], APPLICATION, timestamp),
+                (entry["name"], application, timestamp),
             )
             table_id = cur.lastrowid
         else:
@@ -242,7 +248,8 @@ def apply_import(conn, document, timestamp):
             conn.execute(
                 """INSERT INTO qb_relationships
                    (left_table_id,left_column_id,right_table_id,right_column_id,confidence,source,notes)
-                   VALUES (?,?,?,?,?,'sap-import',?)""",
-                (left_tid, left_fid, right_tid, right_fid, link["confidence"], link["reason"]),
+                   VALUES (?,?,?,?,?,?,?)""",
+                (left_tid, left_fid, right_tid, right_fid, link["confidence"],
+                 "sap-import" if document.get("format") == FORMAT else "relationship-import", link["reason"]),
             )
     return preview
