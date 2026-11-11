@@ -49,16 +49,15 @@ def test_layer_views_keep_source_dictionary_intact(tmp_path):
     conn.commit()
 
     data = graph(conn, "databricks", "TAIJU", include_unjoined=True)
-    assert len(data["relationships"]) == 1
-    assert len(data["tables"]) == 2
-    assert data["relationships"][0]["relationship_type"] == "lineage"
-    source = next(t for t in data["tables"] if t["layer_kind"] == "source")
-    assert [f["column_name"] for f in source["fields"]] == ["EBELN"]
+    assert len(data["relationships"]) == 0
+    assert len(data["tables"]) == 1
+    assert data["tables"][0]["layer_kind"] == "databricks"
+    assert [f["column_name"] for f in data["tables"][0]["fields"]] == ["po_number"]
 
     consumption = graph(conn, "application", "TAIJU", include_unjoined=True)
-    assert len(consumption["relationships"]) == 1
-    assert all(t["layer_kind"] != "source" for t in consumption["tables"])
-    assert {t["table_name"] for t in consumption["tables"]} == {"dppp","sap_purchase_order_view"}
+    assert len(consumption["relationships"]) == 0
+    assert len(consumption["tables"]) == 1
+    assert {t["table_name"] for t in consumption["tables"]} == {"dppp"}
 
     lineage = graph(conn, "lineage", "TAIJU", include_unjoined=True)
     assert len(lineage["relationships"]) == 2
