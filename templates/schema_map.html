@@ -32,6 +32,7 @@
       <p>Relationships are drawn from the current local QueryBridge metadata. No additional joins are inferred in this view.</p>
     </div>
     <div class="schema-map-actions">
+      <button id="map-theme-toggle" type="button" class="secondary small" aria-label="Switch colour theme" aria-pressed="false">◐ Dark mode</button>
       <button id="map-copy" class="secondary small" type="button">Copy Mermaid</button>
       <button id="map-export-html" class="secondary small" type="button">Export Interactive HTML</button>
       <button id="map-export-html-subset" class="secondary small" type="button">Export current view HTML</button>
@@ -75,14 +76,22 @@
     <section class="schema-map-primary panel">
       <div class="schema-map-canvas-head">
         <div><strong id="map-title">Relationship overview</strong><span id="map-render-status" role="status" aria-live="polite"></span></div>
+        <div class="schema-map-display-controls">
+          <label for="map-renderer">Canvas
+            <select id="map-renderer" aria-label="Canvas renderer">
+              <option value="interactive">Interactive · move tables</option>
+              <option value="graphviz">Graphviz · original</option>
+            </select>
+          </label>
         <div class="schema-map-zoom" aria-label="Diagram zoom">
           <button id="map-zoom-out" class="secondary small" type="button" title="Zoom out">−</button>
           <span id="map-zoom-level">100%</span>
           <button id="map-zoom-in" class="secondary small" type="button" title="Zoom in">+</button>
           <button id="map-zoom-reset" class="secondary small" type="button">Fit / Reset</button>
-        </div>
+        </div></div>
       </div>
       <div id="map-stage" class="schema-map-stage" tabindex="0" aria-label="Scroll to navigate diagram">
+        <iframe id="map-interactive-frame" title="Interactive draggable schema map" hidden sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
         <div id="map-diagram" class="schema-map-diagram">
           <img id="map-image" alt="Graphviz network showing current schema relationships" hidden>
           <div id="map-empty">Loading graph…</div>
