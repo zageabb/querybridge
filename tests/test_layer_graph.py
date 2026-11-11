@@ -68,3 +68,75 @@ def test_layer_views_keep_source_dictionary_intact(tmp_path):
     # Application and source field identifiers may never collide.
     assert SOURCE_FIELD_OFFSET + 1 != FIELD_OFFSET + 1
     conn.close()
+
+
+def test_project_source_relationship_to_selected_databricks_and_taiju_fields(tmp_path):
+    from schema_graphviz import dot_graph
+    conn = sqlite3.connect(tmp_path / "projected.db")
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.executescript("""
+      CREATE TABLE qb_tables (
+        id INTEGER PRIMARY KEY,table_name TEXT,application_name TEXT,
+        catalog TEXT,schema_name TEXT,table_type TEXT
+      );
+      CREATE TABLE qb_columns (
+        id INTEGER PRIMARY KEY,table_id INTEGER,column_name TEXT,
+        data_type TEXT,nullable INTEGER,comment TEXT,ordinal_position INTEGER
+      );
+      CREATE TABLE qb_relationships (
+        id INTEGER PRIMARY KEY,left_table_id INTEGER,right_table_id INTEGER,
+        left_column_id INTEGER,right_column_id INTEGER,source TEXT,
+        confidence REAL,notes TEXT
+      );
+      INSERT INTO qb_tables VALUES (1,'EKKO','SAP S/4HANA',NULL,NULL,'TABLE');
+      INSERT INTO qb_tables VALUES (2,'EKPO','SAP S/4HANA',NULL,NULL,'TABLE');
+      INSERT INTO qb_columns VALUES (10,1,'EBELN','CHAR(10)',0,NULL,1);
+      INSERT INTO qb_columns VALUES (11,1,'BUKRS','CHAR(4)',0,NULL,2);
+      INSERT INTO qb_columns VALUES (20,2,'EBELN','CHAR(10)',0,NULL,1);
+      INSERT INTO qb_columns VALUES (21,2,'EBELP','NUMC(5)',0,NULL,2);
+      INSERT INTO qb_relationships VALUES (1,1,2,10,20,'manual',0.99,'Verified join');
+    """)
+    ensure_schema(conn)
+    conn.executescript("""
+      INSERT INTO qb_layer_objects(id,kind,application_name,object_name,catalog,schema_name,created_at)
+      VALUES(1,'databricks','TAIJU','purchase_orders','edp_scm','scmcockpit','2026-11-11');
+      INSERT INTO qb_layer_objects(id,kind,application_name,object_name,catalog,schema_name,created_at)
+      VALUES(2,'databricks','TAIJU','purchase_items','edp_scm','scmcockpit','2026-11-11');
+      INSERT INTO qb_layer_objects(id,kind,application_name,object_name,created_at)
+      VALUES(3,'application','TAIJU','dppp_order','2026-11-11');
+      INSERT INTO qb_layer_objects(id,kind,application_name,object_name,created_at)
+      VALUES(4,'application','TAIJU','dppp_items','2026-11-11');
+      INSERT INTO qb_layer_fields(id,object_id,field_name,ordinal_position)
+      VALUES(101,1,'po_number',1),(102,2,'po_number',1),
+            (103,3,'po_number',1),(104,4,'po_number',1);
+      INSERT INTO qb_layer_lineage(id,target_field_id,source_column_id)
+      VALUES(1,101,10),(2,102,20);
+      INSERT INTO qb_layer_lineage(id,target_field_id,upstream_field_id)
+      VALUES(3,103,101),(4,104,102);
+    """)
+    conn.commit()
+    db = graph(conn, "databricks", "TAIJU")
+    assert len(db["tables"]) == 2
+    assert all(t["layer_kind"] == "databricks" for t in db["tables"])
+    assert {t["table_name"] for t in db["tables"]} == {"purchase_orders", "purchase_items"}
+    assert all([f["column_name"] for f in t["fields"]] == ["po_number"] for t in db["tables"])
+    assert len(db["relationships"]) == 1
+    assert db["relationships"][0]["relationship_type"] == "join"
+    assert db["relationships"][0]["source"] == "mapped:manual"
+    dot = dot_graph(db, mode="detail")
+    assert "edp_scm.scmcockpit.purchase_orders" in dot
+    assert "po_number" in dot
+    assert 'PORT="f' in dot
+    assert "BUKRS" not in dot and "EBELP" not in dot
+
+    app = graph(conn, "application", "TAIJU")
+    assert {t["table_name"] for t in app["tables"]} == {"dppp_order","dppp_items"}
+    assert len(app["relationships"]) == 1
+    assert app["relationships"][0]["relationship_type"] == "join"
+
+    full = graph(conn, "lineage", "TAIJU")
+    assert len(full["relationships"]) == 6  # 4 provenance edges + 2 projected joins
+    assert {t["layer_kind"] for t in full["tables"]} == {"source","databricks","application"}
+    assert all(f["column_name"] != "BUKRS" for t in full["tables"] for f in t["fields"])
+    conn.close()
