@@ -42,13 +42,14 @@
     links.forEach(link => {
       const a = id(link.left_table_id), b = id(link.right_table_id);
       const pairId = [Math.min(a,b), Math.max(a,b)].join(":");
-      const pair = pairs.get(pairId) || {a: Math.min(a,b), b: Math.max(a,b), count: 0};
+      const pair = pairs.get(pairId) || {a: Math.min(a,b), b: Math.max(a,b), count: 0, lineage: 0};
       pair.count++;
+      if (link.relationship_type === "lineage") pair.lineage++;
       pairs.set(pairId, pair);
     });
     Array.from(pairs.values()).sort((x,y) => x.a-y.a || x.b-y.b).forEach(pair => {
       lines.push("    T" + pair.a + ' ---|"' + pair.count +
-        (pair.count === 1 ? " join" : " joins") + '"| T' + pair.b);
+        (pair.lineage === pair.count ? (pair.count === 1 ? " mapping" : " mappings") : (pair.count === 1 ? " link" : " links")) + '"| T' + pair.b);
     });
     lines.push("    classDef orphan fill:#f8fafc,stroke:#98a2b3,stroke-dasharray:5 4");
     lines.push("    classDef external fill:#fff7ed,stroke:#f79009");
