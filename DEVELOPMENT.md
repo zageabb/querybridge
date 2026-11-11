@@ -550,3 +550,20 @@ Notes:
 The application metadata layer holds consumed application fields; actual UI
 screen/control display labels require explicitly captured UI metadata and
 must not be inferred from technical field names.
+
+
+### DEV-017 — Graphviz-quality field connector routing in exported HTML
+
+Status: IMPLEMENTED IN FEATURE BRANCH; CI / USER ACCEPTANCE PENDING
+Priority: High
+Branch: feature/html-export-graphviz-routing
+Depends on: DEV-016 (combined UI/export), Graphviz on export server
+Requirement: Replace simplistic fixed-grid diagram lines with Graphviz-ranked table layout and live HTML5/SVG orthogonal connectors that attach to exact field rows.
+Implementation: server-side Graphviz dot -Tplain node rank/order; self-contained HTML SVG connector routing with rounded orthogonal corners, obstacle-aware gutter candidates, directional lineage arrows, draggable table cards and link redraw on drag, expand/collapse and filter updates. No external runtime dependencies.
+Evidence: tests/test_combined_schema_export.py extended with Graphviz metadata and HTML interaction checks; CI and merge pending.
+Completion criteria:
+- [x] Source implementation and regression tests committed
+- [ ] Full automated tests green
+- [ ] UDA CI green
+- [ ] Merged to main
+- [ ] Manual test of representative complex TAIJU mapped schema
