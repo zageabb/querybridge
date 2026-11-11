@@ -44,7 +44,7 @@ def dot_graph(payload, mode="overview", highlight_field=None, show_descriptions=
         tid = int(table["id"])
         external = bool(table.get("external"))
         joined = bool(table.get("joined"))
-        fill = "#fff8e8" if external else "#eff6ff" if joined else "#f8fafc"
+        fill = "#fff8e8" if external else ("#e8f8ff" if table.get("layer_kind") == "databricks" else "#f1eaff" if table.get("layer_kind") == "application" else "#eff6ff") if joined else "#f8fafc"
         border = "#f79009" if external else "#667da1" if joined else "#98a2b3"
         label = title(table)
         if mode == "overview":
@@ -135,10 +135,11 @@ def dot_graph(payload, mode="overview", highlight_field=None, show_descriptions=
                 f'{title(by_id[right_id])}.{link["right_field"]}'
                 f' | source={source} | confidence={confidence} | {link.get("notes") or ""}'
             )
+            edge_style = 'dir=forward, arrowhead=vee, style=dashed, color="#1196a8"' if link.get("relationship_type") == "lineage" else 'dir=none'
             lines.append(
                 f'T{left_id}:f{left_field}:e -- T{right_id}:f{right_field}:w '
                 f'[id="join-{int(link["id"])}", color={dot_string(color)}, '
-                f'penwidth={width}, tooltip={dot_string(tooltip)}];'
+                f'penwidth={width}, {edge_style}, tooltip={dot_string(tooltip)}];'
             )
     lines.append("}")
     return "\n".join(lines) + "\n"

@@ -17,7 +17,7 @@ SOURCE_FIELD_OFFSET = 3_000_000_000
 SOURCE_TABLE_OFFSET = 4_000_000_000
 REL_OFFSET = 5_000_000_000
 JOIN_OFFSET = 6_000_000_000
-VALID_LAYERS = {"databricks", "application", "lineage"}
+VALID_LAYERS = {"databricks", "application", "lineage", "combined"}
 
 
 def empty(applications):
@@ -91,14 +91,14 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
                ORDER BY r.id"""
         )]
 
-    kind = layer if layer != "lineage" else None
+    kind = layer if layer not in ("lineage", "combined") else None
     base_objects = {
         o["id"] for o in objects
         if (not application or o["application_name"] == application)
         and (kind is None or o["kind"] == kind)
     }
     visible_object_ids = set(base_objects)
-    if layer == "lineage":
+    if layer in ("lineage", "combined"):
         # Include parents only of the requested app's selected endpoints.
         changed = True
         while changed:
@@ -176,7 +176,7 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
     for src in source_joins:
         db_left = source_to_db[src["left_column_id"]]
         db_right = source_to_db[src["right_column_id"]]
-        if layer in ("databricks", "lineage"):
+        if layer in ("databricks", "lineage", "combined"):
             for left in sorted(db_left):
                 for right in sorted(db_right):
                     append_join(
@@ -184,7 +184,7 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
                         left, right, "mapped:" + str(src["source"]),
                         src["confidence"], src["notes"],
                     )
-        if layer in ("application", "lineage"):
+        if layer in ("application", "lineage", "combined"):
             for a in db_left:
                 for b in db_right:
                     for left in db_to_app[a]:
@@ -198,7 +198,7 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
 
     # End-to-end adds actual upstream provenance with direction. It is not a
     # database equality JOIN, and is never used to infer one.
-    if layer == "lineage":
+    if layer in ("lineage", "combined"):
         if source_ids:
             placeholders = ",".join("?" for _ in source_ids)
             source_rows = [dict(r) for r in conn.execute(
@@ -223,6 +223,8 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
                 left_fid = FIELD_OFFSET + upstream["id"]
                 left_name = upstream["field_name"]
             else:
+                if layer == "combined":
+                    continue  # Source dictionary fields belong to End-to-end only.
                 src = source_by_id.get(edge["source_column_id"])
                 if not src:
                     continue

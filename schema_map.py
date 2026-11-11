@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from flask import Blueprint, Response, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request, current_app
 from schema_graphviz import dot_graph, render_svg
+from schema_html_export import export_html
 
 bp = Blueprint("schema_map", __name__)
 _database = None
@@ -34,7 +35,7 @@ def as_bool(value):
 def schema_map_data():
     application = (request.args.get("application") or "").strip()
     layer = (request.args.get("layer") or "source").strip()
-    if layer not in ("source","databricks","application","lineage"):
+    if layer not in ("source","databricks","application","lineage","combined"):
         return jsonify({"ok":False,"error":"Invalid layer."}),400
     include_unjoined = as_bool(request.args.get("include_unjoined"))
     include_cross_app = as_bool(request.args.get("include_cross_app"))
@@ -218,7 +219,7 @@ def diagram():
     field_ids = {c["id"] for t in payload["tables"] for c in t["fields"]}
     if highlighted is not None and highlighted not in field_ids:
         return jsonify({"ok": False, "error": "Selected field is outside the diagram."}), 400
-    effective_mode = "detail" if payload.get("layer") in ("databricks", "application", "lineage") else mode
+    effective_mode = "detail" if payload.get("layer") in ("databricks", "application", "lineage", "combined") else mode
     source = dot_graph(payload, mode=effective_mode, highlight_field=highlighted,
                        show_descriptions=as_bool(request.args.get("show_descriptions")))
     if output_format == "dot":
@@ -234,4 +235,40 @@ def diagram():
     if request.args.get("download") == "1":
         ext = "svg" if output_format == "svg" else "dot"
         response.headers["Content-Disposition"] = f'attachment; filename="querybridge-schema.{ext}"'
+    return response
+
+
+@bp.get("/api/schema-map/export-html")
+def export_standalone_html():
+    """A portable snapshot of every layer, including a focused two-lane UI view."""
+    chosen = request.args.get("layer", "combined")
+    if chosen not in ("source", "databricks", "application", "combined", "lineage"):
+        return jsonify({"ok": False, "error": "Invalid layer."}), 400
+    from urllib.parse import urlencode
+    subset = as_bool(request.args.get("subset"))
+    layers = {}
+    for name in (chosen,) if subset else ("source", "databricks", "application", "combined", "lineage"):
+        params = {"layer": name, "include_unjoined": "1", "include_cross_app": "1"}
+        if subset:
+            for key in ("application", "focus_table", "include_unjoined", "include_cross_app"):
+                if key in request.args:
+                    params[key] = request.args[key]
+        with current_app.test_request_context("/api/schema-map?" + urlencode(params)):
+            result = schema_map_data()
+        if isinstance(result, tuple):
+            return result
+        layers[name] = result.get_json()
+    snapshot = {
+        "layers": layers,
+        "scope": "selected view only" if subset else "all captured schema layers",
+        "initial": {
+            "layer": chosen,
+            "application": request.args.get("application", ""),
+            "mode": request.args.get("mode", "detail"),
+        },
+    }
+    response = Response(export_html(snapshot), mimetype="text/html")
+    response.headers["Content-Disposition"] = 'attachment; filename="querybridge-schema-map.html"'
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
     return response
