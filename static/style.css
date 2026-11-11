@@ -1149,3 +1149,52 @@ body.resizing-panes {
 .sap-import-panel #sap-import-status { min-height: 20px; margin: 12px 0; font-size: 13px; }
 .sap-import-panel #sap-import-status.schema-map-error { color: #b42318; }
 .sap-import-counts { padding: 10px 14px; font-weight: 700; background: #eff6ff; border: 1px solid #d0e3ff; border-radius: 8px; }
+
+
+/* Notes-inspired theme preference: scoped to Schema Map to avoid unexpected
+   changes to unrelated QueryBridge pages. Interactive iframe has matching tokens. */
+.schema-map-display-controls { display:flex;align-items:center;flex-wrap:wrap;gap:12px; }
+.schema-map-display-controls > label { display:flex;align-items:center;gap:7px;font-size:12px;color:#475467;margin:0;font-weight:600; }
+.schema-map-display-controls select { width:auto;max-width:230px;min-width:160px;margin:0;padding:7px;font-size:12px; }
+#map-interactive-frame { display:block;width:100%;height:100%;min-height:370px;border:0;background:transparent;border-radius:8px; }
+.schema-map-stage.is-interactive { overflow:hidden; }
+.schema-map-stage.is-interactive #map-interactive-frame { min-height:100%; }
+body.schema-map-dark {
+  background:#11161d;color:#eef3f8;
+}
+body.schema-map-dark .schema-map-page {
+  --qb-panel:#171e27;--qb-secondary:#1d2631;--qb-border:#2b3745;
+  --qb-fg:#eef3f8;--qb-muted:#9aa7b5;
+  color:var(--qb-fg);
+}
+body.schema-map-dark .schema-map-page .panel,
+body.schema-map-dark .schema-map-stats > div,
+body.schema-map-dark .schema-map-list-item,
+body.schema-map-dark .schema-map-page select,
+body.schema-map-dark .schema-map-page input,
+body.schema-map-dark .schema-map-page button.secondary {
+  background:var(--qb-panel);color:var(--qb-fg);border-color:var(--qb-border);
+}
+body.schema-map-dark .schema-map-page .schema-map-toolbar,
+body.schema-map-dark .schema-map-stage,
+body.schema-map-dark .schema-map-diagram {
+  background:var(--qb-secondary);border-color:var(--qb-border);
+}
+body.schema-map-dark .schema-map-heading p:not(.catalogue-eyebrow),
+body.schema-map-dark .schema-map-toolbar label,
+body.schema-map-dark .schema-map-display-controls > label,
+body.schema-map-dark #map-render-status,
+body.schema-map-dark .schema-map-legend,
+body.schema-map-dark .schema-map-help,
+body.schema-map-dark .schema-map-search,
+body.schema-map-dark .schema-map-list-item small,
+body.schema-map-dark .schema-map-stats span,
+body.schema-map-dark .schema-map-source summary {
+  color:var(--qb-muted);
+}
+body.schema-map-dark .schema-map-side hr { border-color:var(--qb-border); }
+body.schema-map-dark .schema-map-list-item:hover,
+body.schema-map-dark .schema-map-page button.secondary:hover {
+  background:#263950;color:#fff;
+}
+body.schema-map-dark .schema-map-source pre { border-color:var(--qb-border); }
