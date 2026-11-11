@@ -1,0 +1,35 @@
+{
+  "format": "querybridge-links",
+  "format_version": 1,
+  "application": "Procure",
+  "tables": [
+    {
+      "name": "rfrfq",
+      "fields": [
+        "reference_id",
+        "project_id"
+      ]
+    },
+    {
+      "name": "rfrfq_items",
+      "fields": [
+        "reference_id",
+        "line_id"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "left": {
+        "table": "rfrfq",
+        "field": "reference_id"
+      },
+      "right": {
+        "table": "rfrfq_items",
+        "field": "reference_id"
+      },
+      "confidence": 0.98,
+      "reason": "Reviewed parent-child reference join"
+    }
+  ]
+}
