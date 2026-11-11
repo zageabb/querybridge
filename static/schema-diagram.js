@@ -81,7 +81,7 @@
       const source = label(link.source || "saved");
       const confidence = Number.isFinite(Number(link.confidence))
         ? " · " + Math.round(Number(link.confidence)*100) + "%" : "";
-      lines.push("    F" + id(link.left_column_id) + ' ---|"' +
+      lines.push("    F" + id(link.left_column_id) + (link.relationship_type === "lineage" ? ' -->|"' : ' ---|"') +
         source + confidence + '"| F' + id(link.right_column_id));
     });
     lines.push("    classDef orphan fill:#f8fafc,stroke:#98a2b3,stroke-dasharray:5 4");
