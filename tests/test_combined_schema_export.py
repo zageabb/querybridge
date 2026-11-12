@@ -274,3 +274,64 @@ def test_shared_notes_style_theme_asset_is_available(client):
         page=client.get(url)
         assert page.status_code == 200
         assert "theme.js" in page.get_data(as_text=True)
+
+
+def test_application_consumption_layer_lists_only_consuming_application_objects(client):
+    graph=client.get("/api/schema-map?layer=application&include_unjoined=1").get_json()
+    assert graph["ok"]
+    assert graph["applications"] == ["TAIJU"]
+    assert {t["table_name"] for t in graph["tables"]} == {"Purchase Order UI"}
+    assert {field["column_name"] for field in graph["tables"][0]["fields"]} == {
+        "PO Number", "Supplier"
+    }
+    assert all(t["layer_kind"]=="application" for t in graph["tables"])
+    assert client.get("/api/schema-map/diagram?layer=application&mode=detail&format=dot").status_code==200
+    assert client.get("/api/schema-map/export-html?subset=1&layer=application").status_code==200
+    unrelated=client.get("/api/schema-map?layer=application&application=SAP%20S%2F4HANA").get_json()
+    assert unrelated["tables"] == []
+    assert "No captured Application consumption" in unrelated["message"]
+
+
+def test_schema_explorer_has_databricks_combined_and_field_inspector(client):
+    page=client.get("/catalogue")
+    assert page.status_code==200
+    html=page.get_data(as_text=True)
+    assert 'value="source"' in html
+    assert 'value="databricks"' in html
+    assert 'value="application"' in html
+    assert 'value="combined"' in html
+    assert 'value="lineage"' in html
+    assert 'id="explorer-field-inspector"' in html
+    script=client.get("/static/layer-explorer.js").get_data(as_text=True)
+    assert 'fetchLayer("combined",selected)' in script
+    assert 'field.description' in script or 'f.description' in script
+    assert '"No recorded relationship"' in script
+
+
+def test_graphviz_png_matches_application_scope_and_svg(client):
+    png=client.get("/api/schema-map/diagram?layer=application&mode=detail&format=png&download=1")
+    assert png.status_code==200, png.get_data(as_text=True)[:200]
+    assert png.mimetype=="image/png"
+    assert png.data.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
+    assert "querybridge-schema.png" in png.headers["Content-Disposition"]
+    svg=client.get("/api/schema-map/diagram?layer=application&mode=detail&format=svg&download=1")
+    assert svg.status_code==200
+    assert svg.mimetype=="image/svg+xml"
+    assert b"Purchase Order UI" in svg.data
+
+
+def test_current_interactive_export_can_render_svg_and_png(client):
+    html=client.get("/api/schema-map/export-html?subset=1&layer=combined").get_data(as_text=True)
+    assert 'function svgSnapshot()' in html
+    assert 'function svgBlob()' in html
+    assert 'function pngBlob()' in html
+    assert 'window.QueryBridgeCanvasExport={svg:svgBlob,png:pngBlob}' in html
+    assert 'id="export-png"' in html
+    assert 'id="export-svg"' in html
+    script=client.get("/static/schema-map.js").get_data(as_text=True)
+    assert 'async function exportVisibleCanvas(format)' in script
+    assert 'canvasRenderer.value==="interactive"' in script
+    assert 'exporter[format]()' in script
+    page=client.get("/schema-map").get_data(as_text=True)
+    assert 'id="map-export-svg"' in page
+    assert 'id="map-export-png"' in page
