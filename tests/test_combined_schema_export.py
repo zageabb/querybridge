@@ -312,7 +312,7 @@ def test_graphviz_png_matches_application_scope_and_svg(client):
     png=client.get("/api/schema-map/diagram?layer=application&mode=detail&format=png&download=1")
     assert png.status_code==200, png.get_data(as_text=True)[:200]
     assert png.mimetype=="image/png"
-    assert png.data.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
+    assert png.data.startswith(b"\x89PNG\r\n\x1a\n")
     assert "querybridge-schema.png" in png.headers["Content-Disposition"]
     svg=client.get("/api/schema-map/diagram?layer=application&mode=detail&format=svg&download=1")
     assert svg.status_code==200
