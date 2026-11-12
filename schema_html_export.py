@@ -421,7 +421,7 @@ function svgSnapshot(){
  const palette=dark?{card:"#223143",head:"#31465b",text:"#ffffff",muted:"#b8c6d2",line:"#34485b",join:"#7ab4df"}:
  {card:"#ffffff",head:"#e6edf5",text:"#182230",muted:"#667085",line:"#d6e0ea",join:"#6684a8"};
  const defs=makeSVG("defs"),marker=makeSVG("marker"),arrow=makeSVG("path");
- marker.id="snapshot-lineage-arrow";marker.setAttribute("markerWidth","9");marker.setAttribute("markerHeight","9");
+ marker.setAttribute("id","snapshot-lineage-arrow");marker.setAttribute("markerWidth","9");marker.setAttribute("markerHeight","9");
  marker.setAttribute("refX","8");marker.setAttribute("refY","4");marker.setAttribute("orient","auto");
  arrow.setAttribute("d","M0 0 L8 4 L0 8");arrow.setAttribute("stroke","#15a1b7");arrow.setAttribute("fill","none");
  marker.append(arrow);defs.append(marker);svg.append(defs);
