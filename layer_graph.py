@@ -46,9 +46,23 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
     lineage = [dict(r) for r in conn.execute(
         "SELECT * FROM qb_layer_lineage ORDER BY id"
     )]
-    applications = sorted({o["application_name"] for o in objects}, key=str.casefold)
+    # Scope the application dropdown to the selected layer. In particular, an
+    # application with Databricks objects but no consumption objects should not
+    # look like a broken Application consumption graph.
+    eligible_kinds = (
+        {"databricks"} if layer == "databricks" else
+        {"application"} if layer == "application" else
+        {"databricks", "application"}
+    )
+    applications = sorted(
+        {o["application_name"] for o in objects if o["kind"] in eligible_kinds},
+        key=str.casefold,
+    )
     if application and application not in applications:
-        return empty(applications)
+        result = empty(applications)
+        result["layer"] = layer
+        result["message"] = "No captured " + ("Application consumption" if layer == "application" else layer) + " objects for this application. Add them under Admin → Application Data Layers."
+        return result
 
     object_by_id = {o["id"]: o for o in objects}
     descriptions = resolved_descriptions(conn)
@@ -293,6 +307,7 @@ def graph(conn, layer, application="", focus_id=None, include_unjoined=False,
     ]
     return {
         "ok": True, "layer": layer, "applications": applications,
+        "message": ("No application consumption objects have been captured. Add application fields under Admin → Application Data Layers." if layer == "application" and not shown else ""),
         "has_unassigned": False, "tables": shown,
         "relationships": shown_links, "unjoined_tables": unjoined,
         "stats": {
