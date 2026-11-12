@@ -583,3 +583,16 @@ Completion criteria:
 - [ ] Full CI green
 - [ ] Merged main
 - [ ] Manually verified in light/dark and live/standalone views
+
+
+### DEV-019 — Application consumption, Schema Explorer layers, and canvas-aware image export
+
+Status: IMPLEMENTED ON FEATURE BRANCH — CI/USER ACCEPTANCE PENDING
+Branch: fix/application-consumption-view-aware-exports
+Scope: Layer-specific application choices and actionable empty consumption state; Schema Explorer Databricks + Application and field inspector; PNG/SVG export of currently selected Graphviz or draggable HTML5 canvas; CI syntax check for explorer.
+Tests: tests/test_combined_schema_export.py (consumption layer, explorer, Graphviz PNG, interactive exporter availability), existing schema tests.
+Safety: No guessed mappings. Canvas export respects local placement, visible fields and selected layer. No business data rows embedded.
+- [x] Feature code and regression tests committed
+- [ ] CI green
+- [ ] Merge to main
+- [ ] Verify with real TAIJU application mapping data
