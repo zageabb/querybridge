@@ -735,3 +735,17 @@ Schema Map's **Application consumption** layer lists consuming application field
 Schema Explorer now offers the same **Source, Databricks, Application, Databricks + Application, End-to-end** choices. Derived layer tables show actual selected fields, types, descriptions, transformation expressions, recorded upstream/related fields, and a field inspector. An Application-only explorer obtains upstream Databricks names from recorded combined lineage for the inspector without showing the Databricks tables as application UI fields.
 
 **Export SVG** and **Export PNG** in Schema Map now follow the selected **Canvas** renderer. Graphviz · original produces the server-rendered Graphviz diagram as SVG or PNG. Interactive · move tables exports the current dragged/expanded HTML canvas and its displayed field links as standalone SVG or PNG. The HTML export also contains its own SVG/PNG buttons for offline viewing. Interactive PNG conversion is performed locally by the browser and may require a smaller filtered scope for very large diagrams.
+
+
+## Screen design governance and Figma redesign (November 2026)
+
+QueryBridge adopts the **Application-Standard v1.0** screen/development governance from [zageabb/Application-Standard](https://github.com/zageabb/Application-Standard). The current Flask/Jinja/vanilla-JS/SQLite application stays intact while its screens are progressively aligned. A React or database-stack migration is **not** a requirement.
+
+- [Design intent and decisions](DID.md) · [Adopted standard/version](STANDARD_VERSION.md)
+- [Screen gap audit and adoption roadmap](docs/SCREEN_STANDARDS_ADOPTION.md)
+- [Screen inventory](docs/SCREEN_INVENTORY.md) · [Screen specification template](docs/SCREEN_SPEC.md)
+- [Figma handoff](docs/FIGMA_HANDOFF.md) · [Editable draft Figma redesign](https://www.figma.com/design/EDqSijN3CkN06Q06ZM9hI5)
+
+The draft covers twelve desktop workflow screens including Metadata, Schema Explorer, Schema Map, Query Builder, Data Tables, Knowledge, Schema Chat, AI Skills, Administration, LLM Setup, Knowledge Document and Snapshots; dark Schema Map, three mobile views and shared state patterns. These are design proposals, **not** deployed replacements. Any future UI change must link the relevant screen spec and update the user manual, maintain original Graphviz/HTML5 functionality and real metadata lineage semantics, and verify CI, responsive/keyboard QA and live deployment separately.
+
+Upstream standard snapshots are checked into `docs/standards/` so agents can use the same screen-building, design-system, Figma component and QA guidance without guessing. Their theme tokens are draft and must be approved before implementation. See `docs/screens/` for per-screen scope and handoff.
