@@ -159,3 +159,20 @@ def render_svg(dot_source):
     if output.returncode:
         raise RuntimeError("Graphviz could not render this diagram. Try a smaller filter.")
     return output.stdout
+
+
+def render_png(dot_source):
+    """Render the same Graphviz DOT as the original SVG canvas to a PNG."""
+    try:
+        output = subprocess.run(
+            ["dot", "-Tpng"],
+            input=dot_source.encode("utf-8"), capture_output=True, timeout=25,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("Graphviz 'dot' is not installed on the QueryBridge server.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Diagram rendering timed out. Filter by application or focus table.") from exc
+    if output.returncode:
+        raise RuntimeError("Graphviz could not render this PNG. Try a smaller filter.")
+    return output.stdout
