@@ -41,3 +41,7 @@ Standard source: `zageabb/Application-Standard` (`standards/Application_Design_D
 - **Quality gate:** Record tests, exact CI result and SHA, current PR/merge, actual UDA direct/prefixed behaviour, and separate user acceptance. New UI needs keyboard/focus/contrast and responsive QA; no blind mark COMPLETE. No forced green-CI bypass.
 - **Proxy:** Label prefix-specific compatibility changes `LOCAL_UBUNTU_PROXY_COMPAT`; test `/` and `/apps/querybridge/` assets/API/headers with trusted proxy boundaries. No hardcoded hostnames or enterprise credentials.
 - **Architecture exceptions:** Document any new framework, UI library, backend adapter, data migration or paid integration as a reviewed DID/ADR with a rollback; no production changes without explicit approval.
+
+### Local standard reference copies
+
+Use `docs/standards/SCREEN_BUILDING_STANDARD.md`, `docs/standards/DESIGN_SYSTEM.md`, `docs/standards/FIGMA_COMPONENT_CATALOGUE.md` and `docs/standards/SCREEN_QA_CHECKLIST.md` as the current checked-in Application-Standard v1.0 snapshots. They are policy/reference documents, not proof of approved brand tokens. The upstream Application-Standard repository remains authoritative; check for updates when performing substantial UI design or changing baseline standards. Each QB-XX spec lives under `docs/screens/`.
