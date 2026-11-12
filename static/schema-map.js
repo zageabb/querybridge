@@ -227,7 +227,12 @@
         interactiveFrame.hidden=true;
         el("map-diagram").hidden=false;
         empty.hidden=false;
-        empty.textContent="No tables in this filter.";
+        empty.textContent=state.graph.message || (
+          layer.value==="application"
+            ? "No application consumption fields have been captured in this scope. Add them under Admin → Application Data Layers."
+            : "No tables in this filter. Enable Show all tables or select another application."
+        );
+        status(empty.textContent,false);
         return;
       }
       const args=parameters(false,true,true);
@@ -247,7 +252,7 @@
       revokeImage();
       image.hidden = true;
       empty.hidden = false;
-      empty.textContent = "No tables to draw. Enable 'Show all tables' to include unjoined tables.";
+      empty.textContent = state.graph.message || "No tables to draw. Enable 'Show all tables' to include unjoined tables.";
       status("No relationships in this filter", false);
       return;
     }
@@ -346,8 +351,33 @@
     const args=parameters(false,true,true);args.set("subset","1");
     download(endpoint("export-html", args), "querybridge-schema-current-view.html");
   });
-  el("map-export-svg").addEventListener("click", () =>
-    download(endpoint("diagram", parameters(false, true, true)) + "&download=1", "querybridge-schema.svg"));
+  async function downloadBlob(blob, filename) {
+    const url=URL.createObjectURL(blob);
+    try{download(url,filename)}
+    finally{setTimeout(()=>URL.revokeObjectURL(url),2000)}
+  }
+  async function exportVisibleCanvas(format) {
+    if(canvasRenderer.value==="interactive"){
+      const frame=interactiveFrame.contentWindow;
+      const exporter=frame && frame.QueryBridgeCanvasExport;
+      if(interactiveFrame.hidden || !exporter){
+        status("Interactive canvas is still loading. Try exporting again.",true);
+        return;
+      }
+      try{
+        status("Exporting current interactive canvas…",false);
+        const blob=await exporter[format]();
+        await downloadBlob(blob,"querybridge-schema-interactive."+format);
+        status("Exported current interactive "+format.toUpperCase()+" view",false);
+      }catch(error){status(error.message || "Interactive export failed",true)}
+      return;
+    }
+    const args=parameters(false,true,true);
+    args.set("format",format);args.set("download","1");
+    download(endpoint("diagram",args),"querybridge-schema."+format);
+  }
+  el("map-export-svg").addEventListener("click",()=>exportVisibleCanvas("svg"));
+  el("map-export-png").addEventListener("click",()=>exportVisibleCanvas("png"));
   el("map-export-dot").addEventListener("click", () => {
     const args = parameters(false, true, true); args.set("format", "dot"); args.set("download", "1");
     download(endpoint("diagram", args), "querybridge-schema.dot");
