@@ -32,6 +32,7 @@ jobs:
         run: |
           node --check static/schema-diagram.js
           node --check static/schema-map.js
+          node --check static/layer-explorer.js
           node tests/test_schema_diagram.cjs
       - name: Automated tests
         run: python -m pytest -q tests
