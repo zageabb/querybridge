@@ -16,7 +16,7 @@
 Every approved Figma frame must link a QB-XX screen spec, component-to-code mapping, final token values and keyboard/responsive/empty/error states. A code PR must cite Figma URL, baseline screenshot and pass tests plus direct/UDA route checks. User acceptance recorded separately.
 
 ## Design frame inventory
-Nine editable desktop page frames QB-01 through QB-09; one dark Schema Map; mobile Schema Explorer, Schema Map and Query Builder. Outstanding QB-10+ and state variants are tracked in `docs/SCREEN_INVENTORY.md`.
+Twelve editable desktop page frames QB-01 through QB-12; one dark Schema Map; mobile Schema Explorer, Schema Map and Query Builder; four shared state patterns. Individual frame links in `docs/SCREEN_INVENTORY.md`.
 
 ## Known gaps
 Not yet verified in actual running QueryBridge. No automated browser screenshot diff or WCAG AA audit. MUI/Material 3 reuse is a design reference; application runs Flask, not a Material 3 implementation.
