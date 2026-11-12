@@ -612,3 +612,5 @@ Safety: No guessed mappings. Canvas export respects local placement, visible fie
 - **Security:** synthetic demo data only; Figma does not contain production/source corporate records. Enterprise connectors remain optional.
 - **Completion evidence:** files [x]; Figma draft [x]; automated docs/code CI [ ]; merged [ ]; direct/UDA [not applicable to docs change]; owner design acceptance [ ].
 - **Next:** create per-screen QB-XX specs; approve common tokens and Figma frames; implement shared shell and screen updates in focused green-CI PRs with responsive/manual QA.
+
+**Design inventory update:** 12 desktop frames, 1 dark-mode frame, 3 mobile browser frames and 1 system-state reference frame. `docs/standards/` vendors the upstream v1.0 screen building/design/QA/component guidance; screen-frame links recorded in `docs/SCREEN_INVENTORY.md`.
