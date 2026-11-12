@@ -596,3 +596,19 @@ Safety: No guessed mappings. Canvas export respects local placement, visible fie
 - [ ] CI green
 - [ ] Merge to main
 - [ ] Verify with real TAIJU application mapping data
+
+
+### DEV-020 — Adopt Application-Standard screen governance and create Figma redesign
+- **Status:** IN PROGRESS — documentation/Figma draft, CI and manual visual/user acceptance pending.
+- **Priority:** high; future UI work must follow the adopted governance gate.
+- **Branch:** `docs/adopt-application-standard-and-figma`.
+- **Reference:** `zageabb/Application-Standard` v1.0, not a verified separate `standard_template` repository.
+- **Requirements:** inspect current screens, align non-destructively with standard's AGENTS, development register, DID, versions, screen specs, Figma handoff, component reuse and user manual. Do **not** rewrite Flask/SQLite merely to match preferred React/FastAPI examples.
+- **Gap assessment:** see `docs/SCREEN_STANDARDS_ADOPTION.md`; inherited QueryBridge AGENTS/DEVELOPMENT present but DID, STANDARD_VERSION, screen inventory/spec and Figma handoff missing prior to this change.
+- **Figma draft:** https://www.figma.com/design/EDqSijN3CkN06Q06ZM9hI5 ; nine desktop screens, dark schema map, three mobile screens; editable concept art, not code parity or accepted implementation.
+- **Documentation paths:** `STANDARD_VERSION.md`, `DID.md`, `docs/SCREEN_STANDARDS_ADOPTION.md`, `docs/SCREEN_INVENTORY.md`, `docs/SCREEN_SPEC.md`, `docs/FIGMA_HANDOFF.md`; update README and AGENTS.
+- **Capability reuse assessment:** Application-Standard registry identifies `schema-graph` as a QueryBridge-originated candidate; no published compatible shared package verified; retain existing implementation and review reuse before new features.
+- **Manual impact:** documentation/design-only change; current user-visible routes and workflows untouched. README remains current user guide; actual UI implementation PRs must update manual concurrently.
+- **Security:** synthetic demo data only; Figma does not contain production/source corporate records. Enterprise connectors remain optional.
+- **Completion evidence:** files [x]; Figma draft [x]; automated docs/code CI [ ]; merged [ ]; direct/UDA [not applicable to docs change]; owner design acceptance [ ].
+- **Next:** create per-screen QB-XX specs; approve common tokens and Figma frames; implement shared shell and screen updates in focused green-CI PRs with responsive/manual QA.
