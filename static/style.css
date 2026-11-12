@@ -1312,3 +1312,22 @@ html[data-theme="dark"] a {color:#86b7ff;}
 html[data-theme="dark"] nav a {color:#d0d5dd;}
 html[data-theme="dark"] nav a:hover,
 html[data-theme="dark"] nav a.active {color:#fff;}
+
+
+/* Layer-aware Schema Explorer: consuming app fields, Databricks source fields
+   and exact recorded joins/lineage use the same metadata API as Schema Map. */
+.explorer-layer-summary{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.explorer-layer-count{border:1px solid #d0d5dd;background:#eff6ff;color:#344054;padding:5px 10px;border-radius:999px;font-size:12px}
+.explorer-layer-field{border:0;background:none;color:#175cd3;font-weight:650;padding:3px 0;text-align:left;cursor:pointer;text-decoration:underline}
+.explorer-layer-field:hover{color:#0b4bb3}
+.explorer-layer-inspector{margin-top:16px;padding:16px;background:#f8fafc;border:1px solid #d0d5dd;border-radius:10px}
+.explorer-layer-inspector h3{margin:0 0 5px}
+.explorer-layer-inspector dl{display:grid;grid-template-columns:minmax(145px,1fr) minmax(0,3fr);gap:7px 15px;font-size:13px}
+.explorer-layer-inspector dt{color:#667085;font-weight:600}
+.explorer-layer-inspector dd{margin:0;overflow-wrap:anywhere}
+.explorer-layer-relation{padding:7px 10px;border-left:3px solid #4788bd;background:#eaf2ff;overflow-wrap:anywhere}
+html[data-theme="dark"] .explorer-layer-count,
+html[data-theme="dark"] .explorer-layer-inspector{color:var(--qb-fg);background:var(--qb-panel-alt);border-color:var(--qb-border)}
+html[data-theme="dark"] .explorer-layer-inspector dt{color:var(--qb-muted)}
+html[data-theme="dark"] .explorer-layer-field{color:#90bdff}
+html[data-theme="dark"] .explorer-layer-relation{color:var(--qb-fg);background:#203755}
