@@ -96,7 +96,7 @@ button{cursor:pointer}button:hover{background:var(--card-head)}.check{flex-direc
 <label class="check"><input type="checkbox" id="descriptions">Field descriptions</label>
 <label class="check"><input type="checkbox" id="cross" checked>Cross-application links</label>
 <label>Find table<input id="search" placeholder="Table name…"></label>
-<button id="fit">Fit / reset</button><button id="reset-positions" type="button">Reset positions</button><button id="plus">Zoom +</button><button id="minus">Zoom −</button>
+<button id="export-svg" type="button">Export SVG</button><button id="export-png" type="button">Export PNG</button><button id="fit">Fit / reset</button><button id="reset-positions" type="button">Reset positions</button><button id="plus">Zoom +</button><button id="minus">Zoom −</button>
 <span id="stats"></span></div>
 <div id="viewport"><div id="world"><svg id="lines"></svg><div id="nodes"></div></div>
 <div id="help">Drag to pan · Mouse wheel to zoom · Click any field to highlight linked fields · No network required</div></div>
@@ -405,6 +405,102 @@ function draw(){
    " recorded links · "+(Object.keys(snapshot.layouts?.[$("layer").value]||{}).length?"Graphviz layout":"automatic layout");
  applyTransform();
 }
+// Self-contained SVG copy of the CURRENT HTML canvas: manual table positions,
+// visible field rows, and the exact paths drawn by the interactive router.
+function svgSnapshot(){
+ const ns="http://www.w3.org/2000/svg",svg=makeSVG("svg");
+ svg.setAttribute("xmlns",ns);
+ const width=Math.max(320,Math.ceil($("world").offsetWidth));
+ const height=Math.max(220,Math.ceil($("world").offsetHeight));
+ svg.setAttribute("viewBox","0 0 "+width+" "+height);
+ svg.setAttribute("width",width);svg.setAttribute("height",height);
+ const bg=makeSVG("rect");bg.setAttribute("width",width);bg.setAttribute("height",height);
+ bg.setAttribute("fill",document.documentElement.dataset.theme==="dark"?"#111d28":"#eff4fa");
+ svg.append(bg);
+ const dark=document.documentElement.dataset.theme==="dark";
+ const palette=dark?{card:"#223143",head:"#31465b",text:"#ffffff",muted:"#b8c6d2",line:"#34485b",join:"#7ab4df"}:
+ {card:"#ffffff",head:"#e6edf5",text:"#182230",muted:"#667085",line:"#d6e0ea",join:"#6684a8"};
+ const defs=makeSVG("defs"),marker=makeSVG("marker"),arrow=makeSVG("path");
+ marker.id="snapshot-lineage-arrow";marker.setAttribute("markerWidth","9");marker.setAttribute("markerHeight","9");
+ marker.setAttribute("refX","8");marker.setAttribute("refY","4");marker.setAttribute("orient","auto");
+ arrow.setAttribute("d","M0 0 L8 4 L0 8");arrow.setAttribute("stroke","#15a1b7");arrow.setAttribute("fill","none");
+ marker.append(arrow);defs.append(marker);svg.append(defs);
+ const edges=$("lines").querySelectorAll("path.edges");
+ for(const p of edges){
+   const cp=makeSVG("path");cp.setAttribute("d",p.getAttribute("d")||"");
+   cp.setAttribute("fill","none");
+   const active=p.classList.contains("active"),lineage=p.classList.contains("lineage");
+   cp.setAttribute("stroke",active?"#d99b13":lineage?"#15a1b7":palette.join);
+   cp.setAttribute("stroke-width",active?"4":"2");
+   if(lineage){cp.setAttribute("stroke-dasharray","6 4");cp.setAttribute("marker-end","url(#snapshot-lineage-arrow)")}
+   svg.append(cp);
+ }
+ const drawRect=(x,y,w,h,fill,stroke,r=0)=>{
+   const box=makeSVG("rect");
+   for(const [k,v] of Object.entries({x,y,width:w,height:h,fill,stroke,rx:r}))box.setAttribute(k,String(v));
+   svg.append(box);
+ };
+ const drawText=(x,y,value,size=12,color=palette.text,weight="normal")=>{
+   const t=makeSVG("text");t.setAttribute("x",x);t.setAttribute("y",y);
+   t.setAttribute("fill",color);t.setAttribute("font-family","Arial, sans-serif");
+   t.setAttribute("font-size",String(size));t.setAttribute("font-weight",weight);
+   // The SVG contains metadata labels, never executable HTML.
+   t.textContent=String(value||"").slice(0,62);svg.append(t);
+ };
+ for(const [id,p] of positions){
+   const t=byId.get(id);if(!t)continue;
+   drawRect(p.x,p.y,CARD_WIDTH,p.h,palette.card,palette.line,7);
+   drawRect(p.x,p.y,CARD_WIDTH,44,palette.head,palette.line,6);
+   drawText(p.x+11,p.y+18,fullName(t)||name(t),12,palette.text,"bold");
+   drawText(p.x+11,p.y+34,(t.application_name||"Unassigned")+" · "+(t.fields||[]).length+" fields",10,palette.muted);
+   if(!p.expanded)continue;
+   const node=p.node,head=node.querySelector("header");
+   for(const fieldRow of node.querySelectorAll(".field")){
+     const rowY=p.y+fieldRow.offsetTop;
+     drawRect(p.x,rowY,CARD_WIDTH,1,palette.line,"none");
+     const text=fieldRow.querySelector("span")?.firstChild?.textContent||"";
+     const type=fieldRow.querySelector("em")?.textContent||"";
+     drawText(p.x+11,rowY+18,text,11,palette.text);
+     drawText(p.x+178,rowY+18,type,9,palette.muted);
+     const description=fieldRow.querySelector("span small")?.textContent;
+     if(description)drawText(p.x+11,rowY+34,description,9,palette.muted);
+   }
+ }
+ return new XMLSerializer().serializeToString(svg);
+}
+function svgBlob(){return new Blob([svgSnapshot()],{type:"image/svg+xml;charset=utf-8"})}
+function pngBlob(){
+ return new Promise((resolve,reject)=>{
+   const svg=svgSnapshot(),width=Math.max(320,$("world").offsetWidth),
+     height=Math.max(220,$("world").offsetHeight);
+   if(width>14000||height>14000||width*height>50000000){
+     reject(Error("Canvas too large to export as PNG. Filter the diagram first."));return;
+   }
+   const url=URL.createObjectURL(new Blob([svg],{type:"image/svg+xml"}));
+   const img=new Image();
+   img.onload=()=>{
+     const canvas=document.createElement("canvas");
+     canvas.width=width;canvas.height=height;
+     const ctx=canvas.getContext("2d");
+     if(!ctx){URL.revokeObjectURL(url);reject(Error("PNG canvas not available"));return}
+     ctx.drawImage(img,0,0);URL.revokeObjectURL(url);
+     canvas.toBlob(blob=>blob?resolve(blob):reject(Error("PNG conversion failed")),"image/png");
+   };
+   img.onerror=()=>{URL.revokeObjectURL(url);reject(Error("SVG could not be converted to PNG"))};
+   img.src=url;
+ });
+}
+function saveBlob(blob,filename){
+ const url=URL.createObjectURL(blob),a=document.createElement("a");
+ a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+window.QueryBridgeCanvasExport={svg:svgBlob,png:pngBlob};
+$("export-svg").onclick=()=>saveBlob(svgBlob(),"querybridge-interactive-schema.svg");
+$("export-png").onclick=async()=>{
+ try{saveBlob(await pngBlob(),"querybridge-interactive-schema.png")}
+ catch(err){$("stats").textContent=err.message}
+};
 function fit(){const r=$("viewport").getBoundingClientRect(),w=$("world").offsetWidth,h=$("world").offsetHeight;zoom=Math.min(1.4,Math.max(.1,Math.min((r.width-40)/Math.max(w,1),(r.height-40)/Math.max(h,1))));panX=20;panY=20;applyTransform()}
 function update(){refreshFocus();draw();fit()}
 $("application").onchange=()=>{$("focus").value="";update()};
