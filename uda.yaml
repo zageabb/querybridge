@@ -1,0 +1,31 @@
+schema_version: 1
+application:
+  name: querybridge
+  display_name: QueryBridge
+  group: TAIJU - Development
+source:
+  branch: main
+runtime:
+  type: python
+  version: "3.10.12"
+  working_dir: .
+build:
+  working_dir: .
+  commands:
+    - ["python", "-m", "pip", "install", "-r", "requirements.txt", "gunicorn"]
+service:
+  type: systemd
+  entrypoint: ["gunicorn", "--bind", "0.0.0.0:5086", "--workers", "2", "--timeout", "120", "app:app"]
+  port: 5086
+  health_path: /
+proxy:
+  enabled: true
+  path: /apps/querybridge/
+  authentication: uda
+environment:
+  required: []
+deployment:
+  auto_update: true
+  rollback: true
+  github_reporting: false
+
