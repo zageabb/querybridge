@@ -1,0 +1,42 @@
+# V2 review candidate; no activation authority
+schema_version: 2
+application:
+  name: querybridge
+  kind: web
+  display_name: "QueryBridge"
+  group: "TAIJU - Development"
+source:
+  branch: main
+  repository: "zageabb/querybridge"
+builds:
+  - name: build
+    toolchain: python
+    working_dir: "."
+    commands:
+      - ["python","-m","pip","install","-r","requirements.txt","gunicorn"]
+services:
+  - name: web
+    role: web
+    runtime: python
+    runtime_version: "3.10.12"
+    working_dir: "."
+    entrypoint: ["gunicorn","--bind","0.0.0.0:5086","--workers","2","--timeout","120","app:app"]
+    port: 5086
+    health:
+      type: http
+      path: "/"
+    restart: on-failure
+    required_builds: [build]
+proxy:
+  enabled: true
+  upstream: web
+  canonical_path: /apps/querybridge/
+  authentication: uda
+environment:
+  required: []
+deployment:
+  strategy: systemd
+  approval: explicit
+  auto_update: false
+  rollback: true
+  github_reporting: false
